@@ -4,30 +4,39 @@ import { AnalysisMetrics } from '../types';
 interface Props {
   metrics: AnalysisMetrics | null;
   symbol: string;
+  isDemo?: boolean;
+  stale?: boolean;
+  provider?: string;
 }
 
-export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol }) => {
+export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale, provider }) => {
   if (!metrics) {
     return (
       <div style={styles.container}>
         <div style={styles.header}>
           <span style={styles.title}>Analysis</span>
-          <span style={styles.badge}>DEMO</span>
+          <span style={{ ...styles.badge, background: '#8b949e' }}>LOADING</span>
         </div>
         <div style={{ padding: 20, color: '#8b949e', textAlign: 'center' }}>Loading...</div>
       </div>
     );
   }
+
+  const badgeColor = isDemo ? '#f0883e' : stale ? '#d29922' : '#26a69a';
+  const badgeText = isDemo ? 'DEMO' : stale ? 'STALE' : 'LIVE';
+  const providerLabel = provider ?? 'unknown';
+
   return (
     <div style={styles.container}>
       <div style={styles.header}>
         <span style={styles.title}>Analysis</span>
-        <span style={styles.badge}>DEMO</span>
+        <span style={{ ...styles.badge, background: badgeColor }}>{badgeText}</span>
       </div>
 
       <Section title="Market Data">
         <Row label="Symbol" value={symbol} />
-        <Row label="Data Source" value={metrics.dataSource} color="#f0883e" />
+        <Row label="Provider" value={providerLabel} color={badgeColor} />
+        <Row label="Data Source" value={metrics.dataSource} color={badgeColor} />
         <Row label="Trend" value={metrics.trendState}
           color={metrics.trendState === 'Bullish' ? '#3fb950' : metrics.trendState === 'Bearish' ? '#f85149' : '#8b949e'} />
         <Row label="Volatility" value={metrics.volatilityState}
@@ -86,10 +95,10 @@ function fmt(v: number | null): string {
 }
 
 const styles: Record<string, React.CSSProperties> = {
-  container: { width: 280, background: '#0d1117', borderLeft: '1px solid #21262d', display: 'flex', flexDirection: 'column', overflow: 'auto' },
+  container: { width: 280, minWidth: 240, background: '#0d1117', borderLeft: '1px solid #21262d', display: 'flex', flexDirection: 'column', overflow: 'auto' },
   header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #21262d' },
   title: { fontSize: 13, fontWeight: 600, color: '#f0f6fc' },
-  badge: { fontSize: 9, background: '#f0883e', color: '#000', padding: '2px 6px', borderRadius: 4, fontWeight: 700 },
+  badge: { fontSize: 9, color: '#000', padding: '2px 6px', borderRadius: 4, fontWeight: 700 },
   section: { padding: '10px 12px', borderBottom: '1px solid #161b22' },
   sectionTitle: { fontSize: 11, fontWeight: 700, color: '#8b949e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' },

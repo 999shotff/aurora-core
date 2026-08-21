@@ -22,14 +22,16 @@ function App() {
   const [metrics, setMetrics] = useState<AnalysisMetrics | null>(null);
   const [dataSource, setDataSource] = useState<{ isDemo: boolean; provider: string; stale: boolean }>({ isDemo: true, provider: 'loading...', stale: false });
   const [dataMode, setDataMode] = useState<'demo' | 'live'>(() => {
-    return (localStorage.getItem('aurora_data_mode') as 'demo' | 'live') || 'demo';
+    return (localStorage.getItem('aurora_data_mode') as 'demo' | 'live') || 'live';
   });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [backendDown, setBackendDown] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
     setError(null);
+    setBackendDown(false);
     try {
       const result = await fetchOHLCV(selectedAsset, selectedTimeframe, 200);
       setBars(result.bars);
@@ -37,7 +39,12 @@ function App() {
       setMetrics(getAnalysisMetrics(result.bars));
       setDataSource({ isDemo: result.isDemo, provider: result.provider, stale: result.stale });
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Failed to load data');
+      const msg = e instanceof Error ? e.message : 'Failed to load data';
+      if (msg === 'BACKEND UNAVAILABLE') {
+        setBackendDown(true);
+      } else {
+        setError(msg);
+      }
     } finally {
       setLoading(false);
     }
@@ -48,7 +55,10 @@ function App() {
   }, [loadData]);
 
   useEffect(() => {
-    getDataSourceInfo().then(setDataSource);
+    getDataSourceInfo().then(info => {
+      setDataSource(info);
+      setBackendDown(info.provider === 'mock (no backend)');
+    });
   }, []);
 
   const handleDataModeChange = (mode: 'demo' | 'live') => {
@@ -76,13 +86,32 @@ function App() {
     <div style={styles.app}>
       <NavBar page={page} setPage={setPage} dataMode={dataMode} />
       {page === 'terminal' && (
-        <div style={styles.terminalLayout}>
-          <Watchlist selectedAsset={selectedAsset} onSelect={setSelectedAsset} />
+        <div style={styles.terminalLayout} className="terminal-layout">
+          <div style={styles.watchlistPanel} className="watchlist-panel">
+            <Watchlist selectedAsset={selectedAsset} onSelect={setSelectedAsset} />
+          </div>
           <div style={styles.terminalMain}>
+            <TopBar
+              selectedAsset={selectedAsset}
+              selectedTimeframe={selectedTimeframe}
+              onAssetChange={setSelectedAsset}
+              onTimeframeChange={setSelectedTimeframe}
+              isDemo={dataSource.isDemo}
+              stale={dataSource.stale}
+              provider={dataSource.provider}
+            />
             {loading ? (
               <div style={styles.loadingState}>
                 <div style={styles.spinner} />
                 <span>Loading market data...</span>
+              </div>
+            ) : backendDown ? (
+              <div style={styles.backendDownState}>
+                <span style={styles.backendDownIcon}>⚠</span>
+                <span style={{ fontSize: 18, fontWeight: 700, color: '#f85149' }}>BACKEND UNAVAILABLE</span>
+                <span style={{ fontSize: 13, color: '#8b949e' }}>The market data service is not responding.</span>
+                <span style={{ fontSize: 12, color: '#8b949e' }}>Please check the backend or try again later.</span>
+                <button style={styles.retryBtn} onClick={loadData}>Retry</button>
               </div>
             ) : error ? (
               <div style={styles.errorState}>
@@ -92,7 +121,9 @@ function App() {
               </div>
             ) : (
               <>
-                <PriceChart bars={bars} overlays={overlays} panels={[]} />
+                <div style={styles.chartArea}>
+                  <PriceChart bars={bars} overlays={overlays} panels={[]} />
+                </div>
                 <div style={styles.dataBar}>
                   {lastBar && (
                     <>
@@ -103,21 +134,22 @@ function App() {
                       <span>Vol: {lastBar.volume.toLocaleString()}</span>
                     </>
                   )}
-                  <span style={{ marginLeft: 8, color: '#8b949e' }}>
-                    Source: {dataSource.provider}
-                  </span>
-                  <span style={
-                    dataSource.isDemo ? styles.demoLabel :
-                    dataSource.stale ? styles.staleLabel :
-                    styles.liveLabel
-                  }>
-                    {dataSource.isDemo ? 'DEMO' : dataSource.stale ? 'STALE' : 'LIVE'}
+                  <span style={{ marginLeft: 'auto', color: '#8b949e', fontSize: 10 }}>
+                    Research: NO_DEPLOYMENT_SIGNAL
                   </span>
                 </div>
               </>
             )}
           </div>
-          <AnalysisPanel metrics={metrics} symbol={selectedAsset} />
+          <div style={styles.analysisPanel} className="analysis-panel">
+            <AnalysisPanel
+              metrics={metrics}
+              symbol={selectedAsset}
+              isDemo={dataSource.isDemo}
+              stale={dataSource.stale}
+              provider={dataSource.provider}
+            />
+          </div>
         </div>
       )}
       {page === 'explorer' && (
@@ -185,13 +217,15 @@ const styles: Record<string, React.CSSProperties> = {
   liveModeBadge: { fontSize: 9, background: '#26a69a', color: '#000', padding: '2px 8px', borderRadius: 4, fontWeight: 800, letterSpacing: 0.5 },
   demoModeBadge: { fontSize: 9, background: '#f0883e', color: '#000', padding: '2px 8px', borderRadius: 4, fontWeight: 800, letterSpacing: 0.5 },
   terminalLayout: { display: 'flex', flex: 1, overflow: 'hidden' },
-  terminalMain: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-  dataBar: { display: 'flex', gap: 16, padding: '6px 16px', background: '#0d1117', borderTop: '1px solid #21262d', fontSize: 12, color: '#8b949e', fontFamily: 'monospace', alignItems: 'center' },
-  demoLabel: { marginLeft: 'auto', color: '#f0883e', fontWeight: 700, fontSize: 11 },
-  liveLabel: { marginLeft: 'auto', color: '#26a69a', fontWeight: 700, fontSize: 11 },
-  staleLabel: { marginLeft: 'auto', color: '#d29922', fontWeight: 700, fontSize: 11 },
+  watchlistPanel: { display: 'flex', flexShrink: 0 },
+  terminalMain: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 },
+  analysisPanel: { display: 'flex', flexShrink: 0 },
+  chartArea: { flex: 1, overflow: 'hidden', minHeight: 0 },
+  dataBar: { display: 'flex', gap: 16, padding: '6px 16px', background: '#0d1117', borderTop: '1px solid #21262d', fontSize: 12, color: '#8b949e', fontFamily: 'monospace', alignItems: 'center', flexShrink: 0 },
   loadingState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#8b949e' },
   errorState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#f85149' },
+  backendDownState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#f85149' },
+  backendDownIcon: { width: 48, height: 48, borderRadius: '50%', background: 'rgba(248,81,73,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 },
   errorIcon: { width: 32, height: 32, borderRadius: '50%', background: 'rgba(248,81,73,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700 },
   retryBtn: { background: 'rgba(38,166,154,0.2)', border: '1px solid #26a69a', color: '#26a69a', padding: '8px 20px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
   spinner: { width: 24, height: 24, border: '2px solid #21262d', borderTopColor: '#26a69a', borderRadius: '50%', animation: 'spin 1s linear infinite' },

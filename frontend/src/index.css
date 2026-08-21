@@ -33,3 +33,26 @@ select, button {
 input:focus, select:focus, button:focus {
   outline: 1px solid #1f6feb;
 }
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* Mobile responsive */
+@media (max-width: 900px) {
+  .terminal-layout {
+    flex-direction: column !important;
+  }
+  .watchlist-panel {
+    max-height: 120px;
+    overflow-y: auto;
+    border-right: none !important;
+    border-bottom: 1px solid #21262d;
+  }
+  .analysis-panel {
+    max-height: 300px;
+    overflow-y: auto;
+    border-left: none !important;
+    border-top: 1px solid #21262d;
+  }
+}

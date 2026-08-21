@@ -492,11 +492,14 @@ const LandingPage: React.FC<{ onNavigate?: (page: string) => void }> = ({ onNavi
             Transparent methodology, reproducible experiments, full data provenance.
           </p>
           <div style={styles.heroCTA}>
-            <a href="#features" style={styles.btnPrimary}>
+            <button
+              onClick={() => onNavigate?.('terminal')}
+              style={styles.btnPrimary}
+            >
+              OPEN TERMINAL
+            </button>
+            <a href="#features" style={styles.btnSecondary}>
               Explore Features
-            </a>
-            <a href="#integrity" style={styles.btnSecondary}>
-              Research Integrity
             </a>
           </div>
         </div>

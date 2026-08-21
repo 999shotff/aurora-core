@@ -1,6 +1,6 @@
 import { OHLCBar, IndicatorSeries, Asset, Timeframe, AnalysisMetrics } from '../types';
 
-const API_BASE = import.meta.env.VITE_API_URL || 'http://127.0.0.1:8000';
+const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
 
 interface BackendOHLCResponse {
   symbol: string;
@@ -161,12 +161,7 @@ export async function fetchOHLCV(
   if (backendData) {
     return backendData;
   }
-  return {
-    bars: generateMockOHLCV(symbol, timeframe, nBars),
-    isDemo: true,
-    provider: 'mock (local)',
-    stale: false,
-  };
+  throw new Error('BACKEND UNAVAILABLE');
 }
 
 function getStartPrice(symbol: string): number {
