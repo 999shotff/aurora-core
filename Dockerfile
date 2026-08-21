@@ -10,6 +10,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY src/ ./src/
 COPY .env.example .env.example
 
+# Ensure src-layout package is importable
+ENV PYTHONPATH=/app/src
+
 # Production defaults (overridable via environment)
 ENV AURORA_HOST=0.0.0.0
 ENV AURORA_PORT=8000
