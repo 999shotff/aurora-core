@@ -1,0 +1,24 @@
+services:
+  - type: web
+    name: aurora-core-api
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    envVars:
+      - key: AURORA_DATA_MODE
+        value: real
+      - key: AURORA_DEBUG
+        value: false
+      - key: AURORA_HOST
+        value: 0.0.0.0
+      - key: AURORA_PORT
+        value: 8000
+      - key: AURORA_CORS_ORIGINS
+        sync: false
+      - key: AURORA_LOG_LEVEL
+        value: info
+      - key: AURORA_CACHE_TTL_SECONDS
+        value: 60
+      - key: AURORA_RATE_LIMIT_RPM
+        value: 60
+    healthCheckPath: /health
+    autoDeploy: true
