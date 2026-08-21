@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "aurora-core"
+version = "0.1.0"
+description = "AI-first market reasoning and research system"
+requires-python = ">=3.10"
+dependencies = ["pydantic>=2.7,<3"]
+
+[project.optional-dependencies]
+research = ["pypdf>=5.0,<6"]
+data = ["pyarrow>=15.0", "pandas>=2.0"]
+ml = ["torch>=2.3", "transformers>=4.45", "accelerate>=0.34", "safetensors>=0.4"]
+dev = ["pytest>=8.0,<9", "ruff>=0.6,<1"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"

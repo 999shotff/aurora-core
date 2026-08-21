@@ -1,0 +1,17 @@
+https://github.com/stefan-jansen/machine-learning-for-trading.git
+
+https://github.com/je-suis-tm/quant-trading.git
+
+https://github.com/edtechre/pybroker.git
+
+https://massive.com/blog/case-study-algorithmict-trading-with-go
+
+https://github.com/cuemacro/findatapy.git
+
+https://github.com/google/tf-quant-finance.git
+
+https://github.com/tradytics/surpriver.git
+
+https://github.com/aws/context-ontology-accelerator.git
+
+

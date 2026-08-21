@@ -1,0 +1,61 @@
+{
+  "BTC-USD": {
+    "instrument": "BTC-USD",
+    "baseline_accuracy": 0.5027397260273972,
+    "best_model_type": "logistic_regression",
+    "best_hyperparameters": {
+      "learning_rate": 0.1,
+      "n_iterations": 500,
+      "l2_penalty": 0.0001
+    },
+    "best_accuracy_gross": 0.47555555555555556,
+    "best_accuracy_net": 0.4866666666666667,
+    "best_delta_gross": -0.027184170471841684,
+    "best_delta_net": -0.016073059360730557,
+    "status": "REJECTED",
+    "status_reason": "Accuracy 0.476 below baseline 0.503",
+    "n_windows": 9,
+    "p_value": 0.41466185532605726,
+    "effect_size": -0.05438786441999022,
+    "n_ablation_groups": 7
+  },
+  "SPY": {
+    "instrument": "SPY",
+    "baseline_accuracy": 0.564,
+    "best_model_type": "logistic_regression",
+    "best_hyperparameters": {
+      "learning_rate": 0.001,
+      "n_iterations": 200,
+      "l2_penalty": 0.0001
+    },
+    "best_accuracy_gross": 0.528,
+    "best_accuracy_net": 0.548,
+    "best_delta_gross": -0.03599999999999992,
+    "best_delta_net": -0.015999999999999903,
+    "status": "REJECTED",
+    "status_reason": "Accuracy 0.528 below baseline 0.564",
+    "n_windows": 5,
+    "p_value": 0.4188529020682028,
+    "effect_size": -0.07232281701356946,
+    "n_ablation_groups": 7
+  },
+  "QQQ": {
+    "instrument": "QQQ",
+    "baseline_accuracy": 0.566,
+    "best_model_type": "decision_tree",
+    "best_hyperparameters": {
+      "max_depth": 4,
+      "min_samples_split": 5
+    },
+    "best_accuracy_gross": 0.492,
+    "best_accuracy_net": 0.552,
+    "best_delta_gross": -0.07399999999999995,
+    "best_delta_net": -0.013999999999999901,
+    "status": "REJECTED",
+    "status_reason": "Accuracy 0.492 below baseline 0.566",
+    "n_windows": 5,
+    "p_value": 0.09742236120950265,
+    "effect_size": -0.14838704789030044,
+    "n_ablation_groups": 7
+  }
+}

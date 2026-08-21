@@ -1,0 +1,263 @@
+{
+  "BTC-USD": {
+    "provenance": {
+      "source": "yfinance",
+      "instrument": "BTC-USD",
+      "date_range": [
+        "2024-08-16T00:00:00+00:00",
+        "2026-08-16T00:00:00+00:00"
+      ],
+      "timeframe": "1d",
+      "row_count": 731,
+      "missing_values": 0,
+      "duplicates_removed": 0,
+      "gaps_detected": 0
+    },
+    "target": {
+      "horizon": "1 period ahead",
+      "construction": "1 if Close[t+1] > Close[t], else 0",
+      "usable_rows": 730
+    },
+    "baselines": {
+      "majority_class": {
+        "accuracy": 0.5027397260273972
+      },
+      "buy_and_hold": {
+        "accuracy": 0.49726027397260275
+      }
+    },
+    "model_results": {
+      "logistic_regression": {
+        "accuracy": 0.4577777777777778,
+        "n_windows": 9
+      },
+      "decision_tree": {
+        "accuracy": 0.5244444444444444,
+        "n_windows": 9
+      },
+      "random_forest": {
+        "accuracy": 0.48000000000000004,
+        "n_windows": 9
+      }
+    },
+    "regime_results": {
+      "high_volatility_bull": {
+        "accuracy": 0.49000000000000005
+      },
+      "sideways": {
+        "accuracy": 0.45999999999999996
+      },
+      "high_volatility_bear": {
+        "accuracy": 0.47000000000000003
+      }
+    },
+    "transaction_costs": {
+      "n_trades": 0.0,
+      "total_cost": 0.0,
+      "gross_return": 0.0660267693643194,
+      "net_return": 0.0660267693643194,
+      "cost_drag": 0.0
+    },
+    "n_features": 25,
+    "feature_names": [
+      "close",
+      "open",
+      "high",
+      "low",
+      "volume",
+      "return_1d",
+      "return_2d",
+      "return_5d",
+      "volatility_5d",
+      "volatility_20d",
+      "relative_volume",
+      "price_range",
+      "body_range",
+      "close_to_sma5",
+      "close_to_sma10",
+      "close_to_sma20",
+      "rsi_14",
+      "macd",
+      "macd_signal",
+      "macd_histogram",
+      "bb_upper",
+      "bb_middle",
+      "bb_lower",
+      "bb_width",
+      "bb_position"
+    ]
+  },
+  "SPY": {
+    "provenance": {
+      "source": "yfinance",
+      "instrument": "SPY",
+      "date_range": [
+        "2024-08-15T00:00:00-04:00",
+        "2026-08-14T00:00:00-04:00"
+      ],
+      "timeframe": "1d",
+      "row_count": 501,
+      "missing_values": 0,
+      "duplicates_removed": 0,
+      "gaps_detected": 112
+    },
+    "target": {
+      "horizon": "1 period ahead",
+      "construction": "1 if Close[t+1] > Close[t], else 0",
+      "usable_rows": 500
+    },
+    "baselines": {
+      "majority_class": {
+        "accuracy": 0.564
+      },
+      "buy_and_hold": {
+        "accuracy": 0.564
+      }
+    },
+    "model_results": {
+      "logistic_regression": {
+        "accuracy": 0.45199999999999996,
+        "n_windows": 5
+      },
+      "decision_tree": {
+        "accuracy": 0.484,
+        "n_windows": 5
+      },
+      "random_forest": {
+        "accuracy": 0.48,
+        "n_windows": 5
+      }
+    },
+    "regime_results": {
+      "sideways": {
+        "accuracy": 0.5
+      },
+      "bullish": {
+        "accuracy": 0.45
+      }
+    },
+    "transaction_costs": {
+      "n_trades": 0.0,
+      "total_cost": 0.0,
+      "gross_return": 0.0502092718676612,
+      "net_return": 0.0502092718676612,
+      "cost_drag": 0.0
+    },
+    "n_features": 25,
+    "feature_names": [
+      "close",
+      "open",
+      "high",
+      "low",
+      "volume",
+      "return_1d",
+      "return_2d",
+      "return_5d",
+      "volatility_5d",
+      "volatility_20d",
+      "relative_volume",
+      "price_range",
+      "body_range",
+      "close_to_sma5",
+      "close_to_sma10",
+      "close_to_sma20",
+      "rsi_14",
+      "macd",
+      "macd_signal",
+      "macd_histogram",
+      "bb_upper",
+      "bb_middle",
+      "bb_lower",
+      "bb_width",
+      "bb_position"
+    ]
+  },
+  "QQQ": {
+    "provenance": {
+      "source": "yfinance",
+      "instrument": "QQQ",
+      "date_range": [
+        "2024-08-15T00:00:00-04:00",
+        "2026-08-14T00:00:00-04:00"
+      ],
+      "timeframe": "1d",
+      "row_count": 501,
+      "missing_values": 0,
+      "duplicates_removed": 0,
+      "gaps_detected": 112
+    },
+    "target": {
+      "horizon": "1 period ahead",
+      "construction": "1 if Close[t+1] > Close[t], else 0",
+      "usable_rows": 500
+    },
+    "baselines": {
+      "majority_class": {
+        "accuracy": 0.566
+      },
+      "buy_and_hold": {
+        "accuracy": 0.566
+      }
+    },
+    "model_results": {
+      "logistic_regression": {
+        "accuracy": 0.4640000000000001,
+        "n_windows": 5
+      },
+      "decision_tree": {
+        "accuracy": 0.532,
+        "n_windows": 5
+      },
+      "random_forest": {
+        "accuracy": 0.44400000000000006,
+        "n_windows": 5
+      }
+    },
+    "regime_results": {
+      "sideways": {
+        "accuracy": 0.5166666666666667
+      },
+      "high_volatility_sideways": {
+        "accuracy": 0.43333333333333335
+      },
+      "bullish": {
+        "accuracy": 0.5333333333333333
+      }
+    },
+    "transaction_costs": {
+      "n_trades": 0.0,
+      "total_cost": 0.0,
+      "gross_return": 0.04733029061617257,
+      "net_return": 0.04733029061617257,
+      "cost_drag": 0.0
+    },
+    "n_features": 25,
+    "feature_names": [
+      "close",
+      "open",
+      "high",
+      "low",
+      "volume",
+      "return_1d",
+      "return_2d",
+      "return_5d",
+      "volatility_5d",
+      "volatility_20d",
+      "relative_volume",
+      "price_range",
+      "body_range",
+      "close_to_sma5",
+      "close_to_sma10",
+      "close_to_sma20",
+      "rsi_14",
+      "macd",
+      "macd_signal",
+      "macd_histogram",
+      "bb_upper",
+      "bb_middle",
+      "bb_lower",
+      "bb_width",
+      "bb_position"
+    ]
+  }
+}

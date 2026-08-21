@@ -1,0 +1,10 @@
+{
+  "baseline_candidates": [
+    {"id": "deepseek-r1-distill-qwen-1.5b", "provider": "huggingface", "role": "reasoning_baseline", "status": "candidate"},
+    {"id": "qwen-small-baseline", "provider": "huggingface", "role": "domain_training_baseline", "status": "candidate"},
+    {"id": "gemma-3-1b", "provider": "huggingface", "role": "independent_baseline", "status": "candidate"}
+  ],
+  "experimental_architectures": [
+    {"id": "aurora-loop", "role": "architecture_experiment", "status": "research_only"}
+  ]
+}

@@ -1,0 +1,16 @@
+__pycache__
+*.pyc
+.pytest_cache
+.ruff_cache
+.venv
+venv
+.env
+.env.*
+!.env.example
+dist
+build
+*.egg-info
+node_modules
+frontend/dist
+.vscode
+.idea

@@ -1,0 +1,7 @@
+{
+  "experiment_id": "0001_model_benchmark",
+  "goal": "Compare small local models on the same AURORA market-reasoning benchmark.",
+  "models": ["deepseek-r1-distill-qwen-1.5b", "qwen-small-baseline", "gemma-3-1b"],
+  "metrics": ["task_accuracy", "brier_score", "calibration_error", "abstention_quality", "reasoning_quality", "latency_ms", "peak_memory_mb"],
+  "rules": ["No training on evaluation split.", "No future market information.", "Record exact model revision and dataset version."]
+}
