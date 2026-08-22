@@ -15,6 +15,8 @@ import { SettingsPage } from './pages/SettingsPage';
 
 type Page = 'landing' | 'terminal' | 'explorer' | 'research' | 'analysis' | 'settings';
 
+const POLL_INTERVAL = 60_000;
+
 function App() {
   const [page, setPage] = useState<Page>('landing');
   const [selectedAsset, setSelectedAsset] = useState('BTC-USD');
@@ -29,24 +31,39 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [backendDown, setBackendDown] = useState(false);
+  const [emptyData, setEmptyData] = useState(false);
   const [enabledIndicators, setEnabledIndicators] = useState<Set<string>>(
     () => new Set(['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
   );
   const [structureEnabled, setStructureEnabled] = useState(false);
   const barsRef = useRef<OHLCBar[]>([]);
+  const abortRef = useRef<AbortController | null>(null);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    setBackendDown(false);
+  const loadData = useCallback(async (isPoll = false) => {
+    if (abortRef.current) abortRef.current.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    if (!isPoll) {
+      setLoading(true);
+      setError(null);
+      setBackendDown(false);
+      setEmptyData(false);
+    }
     try {
       const result = await fetchOHLCV(selectedAsset, selectedTimeframe, 200);
-      barsRef.current = result.bars;
-      setBars(result.bars);
-      setOverlays(computeAllIndicators(result.bars, enabledIndicators));
-      setMetrics(getAnalysisMetrics(result.bars));
-      setDataSource({ isDemo: result.isDemo, provider: result.provider, stale: result.stale });
+      if (controller.signal.aborted) return;
+      if (result.empty) {
+        setEmptyData(true);
+      } else {
+        barsRef.current = result.bars;
+        setBars(result.bars);
+        setOverlays(computeAllIndicators(result.bars, enabledIndicators));
+        setMetrics(getAnalysisMetrics(result.bars));
+        setDataSource({ isDemo: result.isDemo, provider: result.provider, stale: result.stale });
+      }
     } catch (e) {
+      if (controller.signal.aborted) return;
       const msg = e instanceof Error ? e.message : 'Failed to load data';
       if (msg === 'BACKEND UNAVAILABLE') {
         setBackendDown(true);
@@ -54,12 +71,19 @@ function App() {
         setError(msg);
       }
     } finally {
-      setLoading(false);
+      if (!controller.signal.aborted) setLoading(false);
     }
-  }, [selectedAsset, selectedTimeframe]);
+  }, [selectedAsset, selectedTimeframe, enabledIndicators]);
 
   useEffect(() => {
     loadData();
+    return () => { abortRef.current?.abort(); };
+  }, [selectedAsset, selectedTimeframe]);
+
+  useEffect(() => {
+    if (pollRef.current) clearInterval(pollRef.current);
+    pollRef.current = setInterval(() => loadData(true), POLL_INTERVAL);
+    return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [loadData]);
 
   useEffect(() => {
@@ -140,13 +164,19 @@ function App() {
                 <span style={{ fontSize: 18, fontWeight: 700, color: '#f85149' }}>BACKEND UNAVAILABLE</span>
                 <span style={{ fontSize: 13, color: '#8b949e' }}>The market data service is not responding.</span>
                 <span style={{ fontSize: 12, color: '#8b949e' }}>Please check the backend or try again later.</span>
-                <button style={styles.retryBtn} onClick={loadData}>Retry</button>
+                <button style={styles.retryBtn} onClick={() => loadData()}>Retry</button>
               </div>
             ) : error ? (
               <div style={styles.errorState}>
                 <span style={styles.errorIcon}>!</span>
                 <span>{error}</span>
-                <button style={styles.retryBtn} onClick={loadData}>Retry</button>
+                <button style={styles.retryBtn} onClick={() => loadData()}>Retry</button>
+              </div>
+            ) : emptyData ? (
+              <div style={styles.backendDownState}>
+                <span style={{ fontSize: 18, fontWeight: 700, color: '#f0883e' }}>NO DATA AVAILABLE</span>
+                <span style={{ fontSize: 13, color: '#8b949e' }}>The backend returned no valid bars for this asset/timeframe.</span>
+                <button style={styles.retryBtn} onClick={() => loadData()}>Retry</button>
               </div>
             ) : (
               <>

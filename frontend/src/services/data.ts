@@ -62,30 +62,34 @@ export function invalidateBackendCache(): void {
 export async function fetchOHLCFromBackend(
   symbol: string,
   timeframe: Timeframe,
-  limit: number = 200
+  limit: number = 200,
+  signal?: AbortSignal
 ): Promise<{ bars: OHLCBar[]; isDemo: boolean; provider: string; stale: boolean } | null> {
   const available = await checkBackend();
   if (!available) return null;
   try {
     const tf = timeframe.toLowerCase();
     const resp = await fetch(`${API_BASE}/market/${symbol}/ohlc?timeframe=${tf}&limit=${limit}`, {
-      signal: AbortSignal.timeout(15000),
+      signal: signal ?? AbortSignal.timeout(15000),
     });
     if (!resp.ok) return null;
     const data: BackendOHLCResponse = await resp.json();
     if (!data.bars || data.bars.length === 0) return null;
     const isIntraday = tf !== '1d' && tf !== '1w';
+    const mapped = data.bars
+      .filter(b => b.timestamp && isFinite(b.open) && isFinite(b.high) && isFinite(b.low) && isFinite(b.close) && isFinite(b.volume))
+      .map(b => ({
+        time: isIntraday ? b.timestamp.replace('Z', '').replace(/\.\d+$/, '') : b.timestamp.split('T')[0],
+        open: b.open,
+        high: b.high,
+        low: b.low,
+        close: b.close,
+        volume: b.volume,
+      }));
+    const bars = sanitizeBars(mapped);
+    if (bars.length === 0) return null;
     return {
-      bars: data.bars
-        .filter(b => b.timestamp && isFinite(b.open) && isFinite(b.high) && isFinite(b.low) && isFinite(b.close) && isFinite(b.volume))
-        .map(b => ({
-          time: isIntraday ? b.timestamp.replace('Z', '').replace(/\.\d+$/, '') : b.timestamp.split('T')[0],
-          open: b.open,
-          high: b.high,
-          low: b.low,
-          close: b.close,
-          volume: b.volume,
-        })),
+      bars,
       isDemo: data.provenance?.is_demo ?? true,
       provider: data.provenance?.provider ?? 'unknown',
       stale: data.provenance?.source_status === 'stale',
@@ -170,11 +174,17 @@ export function generateMockOHLCV(
 export async function fetchOHLCV(
   symbol: string,
   timeframe: Timeframe,
-  nBars: number = 200
-): Promise<{ bars: OHLCBar[]; isDemo: boolean; provider: string; stale: boolean }> {
+  nBars: number = 200,
+  signal?: AbortSignal
+): Promise<{ bars: OHLCBar[]; isDemo: boolean; provider: string; stale: boolean; empty: boolean }> {
+  if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
   const backendData = await fetchOHLCFromBackend(symbol, timeframe, nBars);
   if (backendData) {
-    return backendData;
+    return { ...backendData, empty: false };
+  }
+  const available = await checkBackend();
+  if (available) {
+    return { bars: [], isDemo: true, provider: 'unknown', stale: false, empty: true };
   }
   throw new Error('BACKEND UNAVAILABLE');
 }
@@ -212,6 +222,34 @@ function gaussianRandom(rng: () => number): number {
 
 function round(val: number, decimals: number): number {
   return Math.round(val * 10 ** decimals) / 10 ** decimals;
+}
+
+export function sanitizeBars(rawBars: { time: string; open: number; high: number; low: number; close: number; volume: number }[]): OHLCBar[] {
+  const byTime = new Map<string, { time: string; open: number; high: number; low: number; close: number; volume: number }>();
+  for (const b of rawBars) {
+    if (!b.time || !isFinite(b.open) || !isFinite(b.high) || !isFinite(b.low) || !isFinite(b.close) || !isFinite(b.volume)) continue;
+    const maxOC = Math.max(b.open, b.close);
+    const minOC = Math.min(b.open, b.close);
+    const high = Math.max(b.high, maxOC);
+    const low = Math.min(b.low, minOC);
+    const sanitized = { ...b, high, low };
+    const existing = byTime.get(b.time);
+    if (!existing || b.high > existing.high || b.low < existing.low) {
+      byTime.set(b.time, sanitized);
+    }
+  }
+  const sorted = Array.from(byTime.values()).sort((a, b) => {
+    if (/^\d{4}-\d{2}-\d{2}$/.test(a.time)) return a.time.localeCompare(b.time);
+    return new Date(a.time).getTime() - new Date(b.time).getTime();
+  });
+  return sorted.map(b => ({
+    time: b.time,
+    open: b.open,
+    high: b.high,
+    low: b.low,
+    close: b.close,
+    volume: b.volume,
+  }));
 }
 
 function safeNum(v: unknown): number | null {
