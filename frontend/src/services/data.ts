@@ -296,12 +296,261 @@ export function computeATR(highs: number[], lows: number[], closes: number[], pe
   return computeSMA(trValues, period);
 }
 
-export function computeAllIndicators(bars: OHLCBar[]): IndicatorSeries[] {
+function computeRollingMax(values: number[], window: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) { result.push(null); continue; }
+    result.push(Math.max(...values.slice(i + 1 - window, i + 1)));
+  }
+  return result;
+}
+
+function computeRollingMin(values: number[], window: number): (number | null)[] {
+  const result: (number | null)[] = [];
+  for (let i = 0; i < values.length; i++) {
+    if (i + 1 < window) { result.push(null); continue; }
+    result.push(Math.min(...values.slice(i + 1 - window, i + 1)));
+  }
+  return result;
+}
+
+export function computeStochastic(
+  highs: number[], lows: number[], closes: number[],
+  kPeriod = 14, dPeriod = 3, smoothK = 3
+): { k: (number | null)[]; d: (number | null)[] } {
+  const n = closes.length;
+  const kRaw: (number | null)[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i + 1 < kPeriod) { kRaw.push(null); continue; }
+    const start = i + 1 - kPeriod;
+    const hh = Math.max(...highs.slice(start, i + 1));
+    const ll = Math.min(...lows.slice(start, i + 1));
+    kRaw.push(hh === ll ? 50 : (closes[i] - ll) / (hh - ll) * 100);
+  }
+  const kValid = kRaw.filter((v): v is number => v !== null);
+  const kSmoothedRaw = computeSMA(kValid, smoothK);
+  const kSmoothed: (number | null)[] = [];
+  let ki = 0;
+  for (const v of kRaw) {
+    if (v === null) { kSmoothed.push(null); } else {
+      kSmoothed.push(ki < kSmoothedRaw.length ? kSmoothedRaw[ki] : null); ki++;
+    }
+  }
+  const kValidSmoothed = kSmoothed.filter((v): v is number => v !== null);
+  const dRaw = computeSMA(kValidSmoothed, dPeriod);
+  const d: (number | null)[] = [];
+  let di = 0;
+  for (const v of kSmoothed) {
+    if (v === null) { d.push(null); } else {
+      d.push(di < dRaw.length ? dRaw[di] : null); di++;
+    }
+  }
+  return { k: kSmoothed, d };
+}
+
+export function computeAdxDmi(
+  highs: number[], lows: number[], closes: number[], period = 14
+): { plusDi: (number | null)[]; minusDi: (number | null)[]; adx: (number | null)[] } {
+  const n = closes.length;
+  if (n < 2) {
+    return { plusDi: Array(n).fill(null), minusDi: Array(n).fill(null), adx: Array(n).fill(null) };
+  }
+  const trList: number[] = [highs[0] - lows[0]];
+  const plusDm: number[] = [0];
+  const minusDm: number[] = [0];
+  for (let i = 1; i < n; i++) {
+    trList.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
+    const up = highs[i] - highs[i - 1];
+    const down = lows[i - 1] - lows[i];
+    plusDm.push(up > down && up > 0 ? up : 0);
+    minusDm.push(down > up && down > 0 ? down : 0);
+  }
+  const atrVals = computeEMA(trList, period);
+  const plusDmEma = computeEMA(plusDm, period);
+  const minusDmEma = computeEMA(minusDm, period);
+  const plusDi: (number | null)[] = [];
+  const minusDi: (number | null)[] = [];
+  const dxList: (number | null)[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = atrVals[i]; const pdm = plusDmEma[i]; const mdm = minusDmEma[i];
+    if (a === null || a === 0 || pdm === null || mdm === null) {
+      plusDi.push(null); minusDi.push(null); dxList.push(null);
+    } else {
+      const pdi = 100 * pdm / a; const mdi = 100 * mdm / a;
+      plusDi.push(pdi); minusDi.push(mdi);
+      const denom = pdi + mdi;
+      dxList.push(denom === 0 ? 0 : 100 * Math.abs(pdi - mdi) / denom);
+    }
+  }
+  const dxValid = dxList.filter((v): v is number => v !== null);
+  const adxRaw = computeEMA(dxValid, period);
+  const adx: (number | null)[] = [];
+  let ai = 0;
+  for (const v of dxList) {
+    if (v === null) { adx.push(null); } else {
+      adx.push(ai < adxRaw.length ? adxRaw[ai] : null); ai++;
+    }
+  }
+  return { plusDi, minusDi, adx };
+}
+
+export function computeCCI(
+  highs: number[], lows: number[], closes: number[], period = 20
+): (number | null)[] {
+  const n = closes.length;
+  const tp = highs.map((h, i) => (h + lows[i] + closes[i]) / 3);
+  const tpSma = computeSMA(tp, period);
+  const result: (number | null)[] = [];
+  for (let i = 0; i < n; i++) {
+    if (tpSma[i] === null) { result.push(null); continue; }
+    const start = i + 1 - period;
+    const segment = tp.slice(start, i + 1);
+    const meanDev = segment.reduce((s, x) => s + Math.abs(x - tpSma[i]!), 0) / period;
+    result.push(meanDev === 0 ? 0 : (tp[i] - tpSma[i]!) / (0.015 * meanDev));
+  }
+  return result;
+}
+
+export function computeROC(values: number[], period = 12): (number | null)[] {
+  return values.map((v, i) =>
+    i < period || values[i - period] === 0 ? null : (v - values[i - period]) / values[i - period] * 100
+  );
+}
+
+export function computeWilliamsR(
+  highs: number[], lows: number[], closes: number[], period = 14
+): (number | null)[] {
+  const n = closes.length;
+  const result: (number | null)[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i + 1 < period) { result.push(null); continue; }
+    const start = i + 1 - period;
+    const hh = Math.max(...highs.slice(start, i + 1));
+    const ll = Math.min(...lows.slice(start, i + 1));
+    result.push(hh === ll ? -50 : (hh - closes[i]) / (hh - ll) * -100);
+  }
+  return result;
+}
+
+export function computeOBV(closes: number[], volumes: number[]): number[] {
+  if (closes.length === 0) return [];
+  const result = [0];
+  for (let i = 1; i < closes.length; i++) {
+    const prev = result[result.length - 1];
+    if (closes[i] > closes[i - 1]) result.push(prev + volumes[i]);
+    else if (closes[i] < closes[i - 1]) result.push(prev - volumes[i]);
+    else result.push(prev);
+  }
+  return result;
+}
+
+export function computeVWAP(
+  highs: number[], lows: number[], closes: number[], volumes: number[]
+): (number | null)[] {
+  const n = closes.length;
+  const result: (number | null)[] = [];
+  let cumTpVol = 0, cumVol = 0;
+  for (let i = 0; i < n; i++) {
+    const tp = (highs[i] + lows[i] + closes[i]) / 3;
+    cumTpVol += tp * volumes[i];
+    cumVol += volumes[i];
+    result.push(cumVol === 0 ? null : cumTpVol / cumVol);
+  }
+  return result;
+}
+
+export function computeMFI(
+  highs: number[], lows: number[], closes: number[], volumes: number[], period = 14
+): (number | null)[] {
+  const n = closes.length;
+  const tp = highs.map((h, i) => (h + lows[i] + closes[i]) / 3);
+  const mf = tp.map((t, i) => t * volumes[i]);
+  const result: (number | null)[] = [];
+  for (let i = 0; i < n; i++) {
+    if (i < period) { result.push(null); continue; }
+    const start = i + 1 - period;
+    let posMf = 0, negMf = 0;
+    for (let j = start + 1; j <= i; j++) {
+      if (tp[j] > tp[j - 1]) posMf += mf[j];
+      else if (tp[j] < tp[j - 1]) negMf += mf[j];
+    }
+    result.push(negMf === 0 ? 100 : 100 - 100 / (1 + posMf / negMf));
+  }
+  return result;
+}
+
+export function computeIchimoku(
+  highs: number[], lows: number[], closes: number[],
+  tenkanP = 9, kijunP = 26, senkouBP = 52
+): {
+  tenkanSen: (number | null)[]; kijunSen: (number | null)[];
+  senkouA: (number | null)[]; senkouB: (number | null)[]; chikou: (number | null)[];
+} {
+  const tenkanMax = computeRollingMax(highs, tenkanP);
+  const tenkanMin = computeRollingMin(lows, tenkanP);
+  const tenkanSen = tenkanMax.map((mx, i) =>
+    mx !== null && tenkanMin[i] !== null ? (mx + tenkanMin[i]) / 2 : null
+  );
+  const kijunMax = computeRollingMax(highs, kijunP);
+  const kijunMin = computeRollingMin(lows, kijunP);
+  const kijunSen = kijunMax.map((mx, i) =>
+    mx !== null && kijunMin[i] !== null ? (mx + kijunMin[i]) / 2 : null
+  );
+  const senkouA = tenkanSen.map((t, i) =>
+    t !== null && kijunSen[i] !== null ? (t + kijunSen[i]!) / 2 : null
+  );
+  const senkouBMax = computeRollingMax(highs, senkouBP);
+  const senkouBMin = computeRollingMin(lows, senkouBP);
+  const senkouB = senkouBMax.map((mx, i) =>
+    mx !== null && senkouBMin[i] !== null ? (mx + senkouBMin[i]) / 2 : null
+  );
+  const chikou: (number | null)[] = new Array(closes.length).fill(null);
+  for (let i = 0; i < closes.length; i++) {
+    const target = i - kijunP;
+    if (target >= 0) chikou[target] = closes[i];
+  }
+  return { tenkanSen, kijunSen, senkouA, senkouB, chikou };
+}
+
+export function computePivotPoints(
+  highs: number[], lows: number[], closes: number[]
+): { pivot: (number | null)[]; r1: (number | null)[]; r2: (number | null)[]; r3: (number | null)[];
+  s1: (number | null)[]; s2: (number | null)[]; s3: (number | null)[] } {
+  const n = closes.length;
+  const pivot: (number | null)[] = [null];
+  const r1: (number | null)[] = [null]; const r2: (number | null)[] = [null];
+  const r3: (number | null)[] = [null]; const s1: (number | null)[] = [null];
+  const s2: (number | null)[] = [null]; const s3: (number | null)[] = [null];
+  for (let i = 1; i < n; i++) {
+    const h = highs[i - 1]; const l = lows[i - 1]; const c = closes[i - 1];
+    const p = (h + l + c) / 3;
+    pivot.push(p); r1.push(2 * p - l); r2.push(p + (h - l));
+    r3.push(h + 2 * (p - l)); s1.push(2 * p - h);
+    s2.push(p - (h - l)); s3.push(l - 2 * (h - p));
+  }
+  return { pivot, r1, r2, r3, s1, s2, s3 };
+}
+
+export function computeFibonacci(
+  high: number, low: number, levels?: number[]
+): Record<number, number> {
+  if (!levels) levels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+  if (high < low) [high, low] = [low, high];
+  const diff = high - low;
+  const result: Record<number, number> = {};
+  for (const level of levels) {
+    result[level] = high - diff * level;
+  }
+  return result;
+}
+
+export function computeAllIndicators(bars: OHLCBar[], enabled?: Set<string>): IndicatorSeries[] {
   const closes = bars.map(b => b.close);
   const highs = bars.map(b => b.high);
   const lows = bars.map(b => b.low);
   const times = bars.map(b => b.time);
   const series: IndicatorSeries[] = [];
+  const on = (id: string) => !enabled || enabled.has(id);
 
   const addSeries = (name: string, values: (number | null)[]) => {
     series.push({
@@ -311,23 +560,74 @@ export function computeAllIndicators(bars: OHLCBar[]): IndicatorSeries[] {
     });
   };
 
-  addSeries('sma_20', computeSMA(closes, 20));
-  addSeries('ema_12', computeEMA(closes, 12));
-  addSeries('rsi_14', computeRSI(closes, 14));
-  addSeries('atr_14', computeATR(highs, lows, closes, 14));
-
-  const macd = computeMACD(closes);
-  addSeries('macd_line', macd.macdLine);
-  addSeries('macd_signal', macd.signalLine);
-  addSeries('macd_histogram', macd.histogram);
-
-  const bb = computeBollinger(closes);
-  addSeries('bb_upper', bb.upper);
-  addSeries('bb_middle', bb.middle);
-  addSeries('bb_lower', bb.lower);
+  if (on('sma')) {
+    addSeries('sma_20', computeSMA(closes, 20));
+    addSeries('sma_50', computeSMA(closes, 50));
+  }
+  if (on('ema')) {
+    addSeries('ema_12', computeEMA(closes, 12));
+    addSeries('ema_26', computeEMA(closes, 26));
+  }
+  if (on('rsi')) {
+    addSeries('rsi_14', computeRSI(closes, 14));
+  }
+  if (on('atr')) {
+    addSeries('atr_14', computeATR(highs, lows, closes, 14));
+  }
+  if (on('macd')) {
+    const macd = computeMACD(closes);
+    addSeries('macd_line', macd.macdLine);
+    addSeries('macd_signal', macd.signalLine);
+    addSeries('macd_histogram', macd.histogram);
+  }
+  if (on('bb')) {
+    const bb = computeBollinger(closes);
+    addSeries('bb_upper', bb.upper);
+    addSeries('bb_middle', bb.middle);
+    addSeries('bb_lower', bb.lower);
+  }
+  if (on('ichimoku')) {
+    const ichimoku = computeIchimoku(highs, lows, closes);
+    addSeries('ichimoku_tenkan', ichimoku.tenkanSen);
+    addSeries('ichimoku_kijun', ichimoku.kijunSen);
+    addSeries('ichimoku_senkou_a', ichimoku.senkouA);
+    addSeries('ichimoku_senkou_b', ichimoku.senkouB);
+  }
+  if (on('vwap')) {
+    addSeries('vwap', computeVWAP(highs, lows, closes, bars.map(b => b.volume)));
+  }
 
   return series;
 }
+
+export type IndicatorGroup = 'TREND' | 'MOMENTUM' | 'VOLATILITY' | 'VOLUME' | 'LEVELS';
+
+export interface IndicatorDef {
+  id: string;
+  name: string;
+  group: IndicatorGroup;
+  overlay: boolean;
+}
+
+export const INDICATOR_GROUPS: IndicatorDef[] = [
+  { id: 'sma', name: 'SMA', group: 'TREND', overlay: true },
+  { id: 'ema', name: 'EMA', group: 'TREND', overlay: true },
+  { id: 'adx', name: 'ADX/DMI', group: 'TREND', overlay: false },
+  { id: 'ichimoku', name: 'Ichimoku', group: 'TREND', overlay: true },
+  { id: 'rsi', name: 'RSI', group: 'MOMENTUM', overlay: false },
+  { id: 'macd', name: 'MACD', group: 'MOMENTUM', overlay: false },
+  { id: 'stochastic', name: 'Stochastic', group: 'MOMENTUM', overlay: false },
+  { id: 'cci', name: 'CCI', group: 'MOMENTUM', overlay: false },
+  { id: 'roc', name: 'ROC', group: 'MOMENTUM', overlay: false },
+  { id: 'williamsr', name: 'Williams %R', group: 'MOMENTUM', overlay: false },
+  { id: 'bb', name: 'Bollinger', group: 'VOLATILITY', overlay: true },
+  { id: 'atr', name: 'ATR', group: 'VOLATILITY', overlay: false },
+  { id: 'obv', name: 'OBV', group: 'VOLUME', overlay: false },
+  { id: 'vwap', name: 'VWAP', group: 'VOLUME', overlay: true },
+  { id: 'mfi', name: 'MFI', group: 'VOLUME', overlay: false },
+  { id: 'pivot', name: 'Pivot Points', group: 'LEVELS', overlay: true },
+  { id: 'fib', name: 'Fibonacci', group: 'LEVELS', overlay: true },
+];
 
 export function getAnalysisMetrics(bars: OHLCBar[]): AnalysisMetrics {
   const closes = bars.map(b => b.close);

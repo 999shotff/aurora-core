@@ -79,8 +79,12 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels }) => {
     // Remove old overlay series (simple: recreate all)
     // In production, track series by name for efficiency
     const overlayColors: Record<string, string> = {
-      sma_20: '#2196F3', ema_12: '#FF9800', bb_upper: '#9C27B0',
-      bb_middle: '#9C27B0', bb_lower: '#9C27B0',
+      sma_20: '#2196F3', sma_50: '#64B5F6',
+      ema_12: '#FF9800', ema_26: '#FFB74D',
+      bb_upper: '#9C27B0', bb_middle: '#9C27B0', bb_lower: '#9C27B0',
+      ichimoku_tenkan: '#00BCD4', ichimoku_kijun: '#FF5722',
+      ichimoku_senkou_a: 'rgba(0,188,212,0.3)', ichimoku_senkou_b: 'rgba(255,87,34,0.3)',
+      vwap: '#E91E63',
     };
 
     for (const ov of overlays) {

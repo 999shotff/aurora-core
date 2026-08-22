@@ -5,6 +5,7 @@ import { TopBar } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
 import { PriceChart } from './components/PriceChart';
 import { AnalysisPanel } from './components/AnalysisPanel';
+import { IndicatorSelector } from './components/IndicatorSelector';
 import { LandingPage } from './pages/LandingPage';
 import { AssetExplorer } from './pages/AssetExplorer';
 import { ResearchLab } from './pages/ResearchLab';
@@ -27,6 +28,9 @@ function App() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [backendDown, setBackendDown] = useState(false);
+  const [enabledIndicators, setEnabledIndicators] = useState<Set<string>>(
+    () => new Set(['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
+  );
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -35,7 +39,7 @@ function App() {
     try {
       const result = await fetchOHLCV(selectedAsset, selectedTimeframe, 200);
       setBars(result.bars);
-      setOverlays(computeAllIndicators(result.bars));
+      setOverlays(computeAllIndicators(result.bars, enabledIndicators));
       setMetrics(getAnalysisMetrics(result.bars));
       setDataSource({ isDemo: result.isDemo, provider: result.provider, stale: result.stale });
     } catch (e) {
@@ -48,7 +52,7 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAsset, selectedTimeframe]);
+  }, [selectedAsset, selectedTimeframe, enabledIndicators]);
 
   useEffect(() => {
     loadData();
@@ -70,6 +74,15 @@ function App() {
   const handleSelectAsset = (symbol: string) => {
     setSelectedAsset(symbol);
     setPage('terminal');
+  };
+
+  const handleToggleIndicator = (id: string) => {
+    setEnabledIndicators(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
   };
 
   const lastBar = bars[bars.length - 1];
@@ -150,6 +163,7 @@ function App() {
               provider={dataSource.provider}
             />
           </div>
+          <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} />
         </div>
       )}
       {page === 'explorer' && (
