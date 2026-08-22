@@ -113,9 +113,9 @@ export const MarketStructurePanel: React.FC<Props> = ({ bars, enabled }) => {
         {topSR.map((sr, i) => (
           <Row
             key={i}
-            label={`${sr.type === 'support' ? 'S' : 'R'} (${sr.touches})`}
+            label={`${sr.level_type === 'support' ? 'S' : 'R'} (${sr.touches})`}
             value={fmtPrice(sr.level)}
-            color={sr.type === 'support' ? '#3fb950' : '#f85149'}
+            color={sr.level_type === 'support' ? '#3fb950' : '#f85149'}
           />
         ))}
         {topSR.length === 0 && (

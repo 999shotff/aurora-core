@@ -4,21 +4,21 @@ from __future__ import annotations
 import pytest
 
 from aurora.features.structure import (
-    LiquidityLevel,
     MarketRegime,
+    SRLevel,
     StructureBreak,
     StructureBreakType,
     SwingPoint,
     SwingType,
     analyze_structure,
     classify_market_regime,
+    classify_market_regime_with_confidence,
     classify_swing_sequence,
     detect_liquidity,
     detect_structure_breaks,
     detect_support_resistance,
     detect_swing_points,
 )
-
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -232,9 +232,15 @@ class TestSupportResistance:
             _zeros(10), _zeros(10), _zeros(10), swings
         )
         assert len(result) >= 2
-        types = {r["type"] for r in result}
+        types = {r.level_type for r in result}
         assert "resistance" in types
         assert "support" in types
+        for r in result:
+            assert isinstance(r, SRLevel)
+            assert r.touches >= 2
+            assert r.touch_weight > 0
+            assert r.strength > 0
+            assert isinstance(r.active, bool)
 
     def test_single_touch_excluded(self):
         swings = [SwingPoint(0, 100.0, SwingType.HIGH)]
@@ -361,7 +367,7 @@ class TestAnalyzeStructure:
         result = analyze_structure(highs, lows, closes)
         expected_keys = {
             "swings", "classified", "breaks",
-            "support_resistance", "liquidity", "regime",
+            "support_resistance", "liquidity", "regime", "regime_confidence",
         }
         assert expected_keys == set(result.keys())
         assert isinstance(result["swings"], list)
@@ -370,6 +376,28 @@ class TestAnalyzeStructure:
         assert isinstance(result["support_resistance"], list)
         assert isinstance(result["liquidity"], list)
         assert isinstance(result["regime"], MarketRegime)
+        assert isinstance(result["regime_confidence"], float)
+        assert 0.0 <= result["regime_confidence"] <= 1.0
+
+        # Verify new swing fields
+        for sw in result["swings"]:
+            assert isinstance(sw, SwingPoint)
+            assert isinstance(sw.strength, float)
+            assert isinstance(sw.confirmed, bool)
+
+        # Verify new break fields
+        for br in result["breaks"]:
+            assert isinstance(br, StructureBreak)
+            assert isinstance(br.strength, float)
+            assert isinstance(br.regime_before, str)
+            assert isinstance(br.regime_after, str)
+            assert isinstance(br.is_choch, bool)
+
+        # Verify new SR fields
+        for sr in result["support_resistance"]:
+            assert isinstance(sr, SRLevel)
+            assert isinstance(sr.touch_weight, float)
+            assert isinstance(sr.active, bool)
 
     def test_empty_data(self):
         result = analyze_structure([], [], [])
@@ -379,6 +407,7 @@ class TestAnalyzeStructure:
         assert result["support_resistance"] == []
         assert result["liquidity"] == []
         assert result["regime"] == MarketRegime.RANGING
+        assert result["regime_confidence"] == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -434,3 +463,206 @@ class TestDeterminism:
         r1 = analyze_structure(highs, lows, closes)
         r2 = analyze_structure(highs, lows, closes)
         assert r1 == r2
+
+
+# ---------------------------------------------------------------------------
+# 10. TestSwingConfirmation
+# ---------------------------------------------------------------------------
+
+class TestSwingConfirmation:
+    def test_unconfirmed_swings(self):
+        highs = [10, 12, 11, 14, 13, 16, 15]
+        lows = [8, 10, 9, 11, 10, 13, 12]
+        swings = detect_swing_points(highs, lows, left=2, right=2, confirm_bars=3)
+        for sw in swings:
+            assert isinstance(sw.confirmed, bool)
+
+    def test_no_confirmation(self):
+        highs = [10, 12, 11, 14, 13, 16, 15]
+        lows = [8, 10, 9, 11, 10, 13, 12]
+        swings_no_confirm = detect_swing_points(highs, lows, left=2, right=2, confirm_bars=0)
+        swings_confirm = detect_swing_points(highs, lows, left=2, right=2, confirm_bars=5)
+        # All swings should be confirmed when confirm_bars=0
+        assert all(sw.confirmed for sw in swings_no_confirm)
+        # Some may be unconfirmed with confirm_bars=5
+        assert len(swings_confirm) <= len(swings_no_confirm)
+
+    def test_strength_values(self):
+        highs = [10, 12, 11, 14, 13, 16, 15]
+        lows = [8, 10, 9, 11, 10, 13, 12]
+        swings = detect_swing_points(highs, lows, left=2, right=2)
+        for sw in swings:
+            assert sw.strength >= 0.0
+
+    def test_left_right_indices(self):
+        highs = [10, 12, 11, 14, 13, 16, 15]
+        lows = [8, 10, 9, 11, 10, 13, 12]
+        swings = detect_swing_points(highs, lows, left=2, right=2)
+        for sw in swings:
+            assert sw.left_index <= sw.index <= sw.right_index
+
+
+# ---------------------------------------------------------------------------
+# 11. TestRegimeConfidence
+# ---------------------------------------------------------------------------
+
+class TestRegimeConfidence:
+    def test_uptrend_confidence(self):
+        swings = [
+            SwingPoint(0, 10.0, SwingType.HIGH),
+            SwingPoint(1, 8.0, SwingType.LOW),
+            SwingPoint(2, 12.0, SwingType.HIGH),
+            SwingPoint(3, 9.0, SwingType.LOW),
+            SwingPoint(4, 14.0, SwingType.HIGH),
+            SwingPoint(5, 10.0, SwingType.LOW),
+        ]
+        closes = [11.0] * 20
+        regime, confidence = classify_market_regime_with_confidence(swings, closes, lookback=20)
+        assert regime == MarketRegime.UPTREND
+        assert 0.6 <= confidence <= 1.0
+
+    def test_empty_swings_confidence(self):
+        regime, confidence = classify_market_regime_with_confidence([], [])
+        assert regime == MarketRegime.RANGING
+        assert confidence == 0.0
+
+    def test_confidence_range(self):
+        swings = [
+            SwingPoint(0, 10.0, SwingType.HIGH),
+            SwingPoint(1, 8.0, SwingType.LOW),
+            SwingPoint(2, 12.0, SwingType.HIGH),
+            SwingPoint(3, 6.0, SwingType.LOW),
+        ]
+        closes = [9.0] * 20
+        _regime, confidence = classify_market_regime_with_confidence(swings, closes, lookback=20)
+        assert 0.0 <= confidence <= 1.0
+
+
+# ---------------------------------------------------------------------------
+# 12. TestBreakStrength
+# ---------------------------------------------------------------------------
+
+class TestBreakStrength:
+    def test_break_has_strength(self):
+        highs = [10, 12, 11, 14, 13, 16, 15]
+        lows = [8, 10, 9, 11, 10, 13, 12]
+        closes = [9, 11, 10, 13, 11, 15, 14]
+        swings = detect_swing_points(highs, lows, left=1, right=1)
+        breaks = detect_structure_breaks(highs, lows, closes, swings, left=1, right=1)
+        for br in breaks:
+            assert br.strength >= 0.0
+            assert isinstance(br.regime_before, str)
+            assert isinstance(br.regime_after, str)
+            assert isinstance(br.is_choch, bool)
+
+    def test_bos_strength_positive(self):
+        highs = [10, 12, 11, 14, 13, 16, 15]
+        lows = [8, 10, 9, 11, 10, 13, 12]
+        closes = [9, 11, 10, 13, 11, 15, 14]
+        swings = detect_swing_points(highs, lows, left=1, right=1)
+        breaks = detect_structure_breaks(highs, lows, closes, swings, left=1, right=1)
+        for br in breaks:
+            if br.break_type in (StructureBreakType.BOS_BULL, StructureBreakType.CHOCH_BULL):
+                assert br.strength > 0
+
+    def test_regime_transition(self):
+        highs = [10, 12, 11, 14, 13, 16, 15]
+        lows = [8, 10, 9, 11, 10, 13, 12]
+        closes = [9, 11, 10, 13, 11, 15, 14]
+        swings = detect_swing_points(highs, lows, left=1, right=1)
+        breaks = detect_structure_breaks(highs, lows, closes, swings, left=1, right=1)
+        for br in breaks:
+            assert br.regime_after in ("uptrend", "downtrend", "ranging")
+
+
+# ---------------------------------------------------------------------------
+# 13. TestSRLevelFields
+# ---------------------------------------------------------------------------
+
+class TestSRLevelFields:
+    def test_sr_level_fields(self):
+        swings = [
+            SwingPoint(0, 100.0, SwingType.HIGH),
+            SwingPoint(2, 100.5, SwingType.HIGH),
+            SwingPoint(4, 80.0, SwingType.LOW),
+            SwingPoint(6, 80.3, SwingType.LOW),
+        ]
+        result = detect_support_resistance(
+            _zeros(10), _zeros(10), _zeros(10), swings
+        )
+        for sr in result:
+            assert isinstance(sr, SRLevel)
+            assert sr.level > 0
+            assert sr.level_type in ("support", "resistance")
+            assert sr.touches >= 2
+            assert sr.touch_weight > 0
+            assert sr.strength > 0
+            assert isinstance(sr.active, bool)
+            assert sr.first_touch_index >= 0
+            assert sr.last_touch_index >= sr.first_touch_index
+            assert sr.price_range >= 0
+
+    def test_sr_price_range(self):
+        swings = [
+            SwingPoint(0, 100.0, SwingType.HIGH),
+            SwingPoint(2, 100.5, SwingType.HIGH),
+        ]
+        result = detect_support_resistance(
+            _zeros(10), _zeros(10), _zeros(10), swings, tolerance=0.01
+        )
+        assert len(result) == 1
+        assert result[0].price_range == pytest.approx(0.5, abs=0.01)
+
+
+# ---------------------------------------------------------------------------
+# 14. TestMultiTimeframe
+# ---------------------------------------------------------------------------
+
+class TestMultiTimeframe:
+    def test_aggregate_to_higher_timeframe(self):
+        from aurora.features.structure import aggregate_to_higher_timeframe
+        timestamps = [
+            "2024-01-01T00:00:00Z",
+            "2024-01-01T00:01:00Z",
+            "2024-01-01T00:02:00Z",
+            "2024-01-01T00:03:00Z",
+            "2024-01-01T00:04:00Z",
+            "2024-01-01T00:05:00Z",
+        ]
+        opens = [100.0, 101.0, 102.0, 103.0, 104.0, 105.0]
+        highs = [101.0, 102.0, 103.0, 104.0, 105.0, 106.0]
+        lows = [99.0, 100.0, 101.0, 102.0, 103.0, 104.0]
+        closes = [100.5, 101.5, 102.5, 103.5, 104.5, 105.5]
+        volumes = [1000.0, 1100.0, 1200.0, 1300.0, 1400.0, 1500.0]
+
+        result = aggregate_to_higher_timeframe(
+            timestamps, opens, highs, lows, closes, volumes, 5
+        )
+        assert len(result["timestamps"]) > 0
+        assert len(result["timestamps"]) <= len(timestamps)
+        assert len(result["opens"]) == len(result["timestamps"])
+        assert len(result["highs"]) == len(result["timestamps"])
+        assert len(result["lows"]) == len(result["timestamps"])
+        assert len(result["closes"]) == len(result["timestamps"])
+        assert len(result["volumes"]) == len(result["timestamps"])
+
+    def test_analyze_structure_multi_timeframe(self):
+        from aurora.features.structure import analyze_structure_multi_timeframe
+        n = 100
+        timestamps = [f"2024-01-01T{i:02d}:00:00Z" for i in range(n)]
+        closes = [100.0 + (i % 20) for i in range(n)]
+        opens = [c - 0.5 for c in closes]
+        highs = [c + 1.0 for c in closes]
+        lows = [c - 1.0 for c in closes]
+        volumes = [1000.0 + i * 10 for i in range(n)]
+
+        result = analyze_structure_multi_timeframe(
+            timestamps, opens, highs, lows, closes, volumes,
+            timeframes_minutes=[5, 15],
+        )
+        assert "5m" in result
+        assert "15m" in result
+        for tf_result in result.values():
+            assert "swings" in tf_result
+            assert "regime" in tf_result
+            assert "regime_confidence" in tf_result

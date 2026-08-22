@@ -17,6 +17,10 @@ export type SwingPoint = {
   index: number;
   price: number;
   swing_type: SwingType;
+  strength: number;
+  confirmed: boolean;
+  left_index: number;
+  right_index: number;
 };
 
 export type StructureBreak = {
@@ -25,6 +29,10 @@ export type StructureBreak = {
   break_type: StructureBreakType;
   reference_index: number;
   reference_price: number;
+  strength: number;
+  regime_before: string;
+  regime_after: string;
+  is_choch: boolean;
 };
 
 export type LiquidityLevel = {
@@ -37,9 +45,14 @@ export type LiquidityLevel = {
 
 export type SRLevel = {
   level: number;
-  type: 'support' | 'resistance';
+  level_type: 'support' | 'resistance';
   touches: number;
-  indices: number[];
+  touch_weight: number;
+  strength: number;
+  active: boolean;
+  first_touch_index: number;
+  last_touch_index: number;
+  price_range: number;
 };
 
 function validateLengths(...arrays: number[][]): void {
@@ -55,6 +68,7 @@ export function detectSwingPoints(
   lows: number[],
   left: number = 3,
   right: number = 3,
+  confirmBars: number = 0,
 ): SwingPoint[] {
   validateLengths(highs, lows);
   const n = highs.length;
@@ -82,7 +96,27 @@ export function detectSwingPoints(
         }
       }
       if (rightOk) {
-        swings.push({ index: i, price: highs[i], swing_type: 'high' });
+        let maxDrop = 0;
+        for (let j = leftStart; j <= rightEnd; j++) {
+          if (j !== i) {
+            maxDrop = Math.max(maxDrop, highs[i] - lows[j]);
+          }
+        }
+        const strength = highs[i] > 0 ? Math.round(maxDrop / highs[i] * 10000) / 100 : 0;
+
+        let confirmed = true;
+        if (confirmBars > 0) {
+          confirmed = false;
+          const end = Math.min(i + confirmBars + 1, n);
+          for (let j = i + 1; j < end; j++) {
+            if (lows[j] < highs[i]) {
+              confirmed = true;
+              break;
+            }
+          }
+        }
+
+        swings.push({ index: i, price: highs[i], swing_type: 'high', strength, confirmed, left_index: leftStart, right_index: rightEnd });
       }
     }
 
@@ -102,7 +136,27 @@ export function detectSwingPoints(
         }
       }
       if (rightOkLow) {
-        swings.push({ index: i, price: lows[i], swing_type: 'low' });
+        let maxRise = 0;
+        for (let j = leftStart; j <= rightEnd; j++) {
+          if (j !== i) {
+            maxRise = Math.max(maxRise, highs[j] - lows[i]);
+          }
+        }
+        const strength = lows[i] > 0 ? Math.round(maxRise / lows[i] * 10000) / 100 : 0;
+
+        let confirmed = true;
+        if (confirmBars > 0) {
+          confirmed = false;
+          const end = Math.min(i + confirmBars + 1, n);
+          for (let j = i + 1; j < end; j++) {
+            if (highs[j] > lows[i]) {
+              confirmed = true;
+              break;
+            }
+          }
+        }
+
+        swings.push({ index: i, price: lows[i], swing_type: 'low', strength, confirmed, left_index: leftStart, right_index: rightEnd });
       }
     }
   }
@@ -198,6 +252,8 @@ export function detectStructureBreaks(
     }
   }
 
+  let currentRegime = trendState || 'ranging';
+
   for (let i = 0; i < n; i++) {
     let breakFound = false;
 
@@ -211,13 +267,20 @@ export function detectStructureBreaks(
           sw.index <= lastLhIndex &&
           (trendState === 'downtrend' || trendState === 'downtrend_start');
         const bt: StructureBreakType = isChoch ? 'choch_bull' : 'bos_bull';
+        const regimeAfter = 'uptrend';
+        const strength = sw.price > 0 ? Math.round((closes[i] - sw.price) / sw.price * 10000) / 100 : 0;
         breaks.push({
           index: i,
           price: closes[i],
           break_type: bt,
           reference_index: sw.index,
           reference_price: sw.price,
+          strength,
+          regime_before: currentRegime,
+          regime_after: regimeAfter,
+          is_choch: isChoch,
         });
+        currentRegime = regimeAfter;
         brokenLevels.add(sw.index);
         breakFound = true;
         break;
@@ -236,13 +299,20 @@ export function detectStructureBreaks(
           sw.index <= lastHlIndex &&
           (trendState === 'uptrend' || trendState === 'uptrend_start');
         const bt: StructureBreakType = isChoch ? 'choch_bear' : 'bos_bear';
+        const regimeAfter = 'downtrend';
+        const strength = sw.price > 0 ? Math.round((sw.price - closes[i]) / sw.price * 10000) / 100 : 0;
         breaks.push({
           index: i,
           price: closes[i],
           break_type: bt,
           reference_index: sw.index,
           reference_price: sw.price,
+          strength,
+          regime_before: currentRegime,
+          regime_after: regimeAfter,
+          is_choch: isChoch,
         });
+        currentRegime = regimeAfter;
         brokenLevels.add(sw.index);
         break;
       }
@@ -258,6 +328,7 @@ export function detectSupportResistance(
   closes: number[],
   swings: SwingPoint[],
   tolerance: number = 0.005,
+  touchDecay: number = 0.9,
 ): SRLevel[] {
   validateLengths(highs, lows, closes);
   if (swings.length === 0) return [];
@@ -278,6 +349,7 @@ export function detectSupportResistance(
   }
   clusters.push(currentCluster);
 
+  const n = highs.length;
   const results: SRLevel[] = [];
   for (const cluster of clusters) {
     if (cluster.length < 2) continue;
@@ -295,11 +367,38 @@ export function detectSupportResistance(
       levelType = 'resistance';
     }
 
+    const sortedIndices = cluster.map(sw => sw.index).sort((a, b) => a - b);
+    let touchWeight = 0;
+    for (let rank = 0; rank < sortedIndices.length; rank++) {
+      touchWeight += Math.pow(touchDecay, sortedIndices.length - 1 - rank);
+    }
+
+    const strength = Math.round(cluster.length / Math.max(n, 1) * 100 * 100) / 100;
+
+    const prices = cluster.map(sw => sw.price);
+    const priceRange = Math.max(...prices) - Math.min(...prices);
+
+    let active = true;
+    for (let i = 0; i < n; i++) {
+      if (levelType === 'support' && lows[i] < avgPrice * 0.99) {
+        active = false;
+        break;
+      } else if (levelType === 'resistance' && highs[i] > avgPrice * 1.01) {
+        active = false;
+        break;
+      }
+    }
+
     results.push({
       level: avgPrice,
-      type: levelType,
+      level_type: levelType,
       touches: cluster.length,
-      indices: cluster.map((sw) => sw.index),
+      touch_weight: Math.round(touchWeight * 100) / 100,
+      strength,
+      active,
+      first_touch_index: sortedIndices[0],
+      last_touch_index: sortedIndices[sortedIndices.length - 1],
+      price_range: Math.round(priceRange * 10000) / 10000,
     });
   }
 
@@ -357,7 +456,16 @@ export function classifyMarketRegime(
   closes: number[],
   lookback: number = 20,
 ): MarketRegime {
-  if (swings.length === 0 || closes.length === 0) return 'ranging';
+  const [regime] = classifyMarketRegimeWithConfidence(swings, closes, lookback);
+  return regime;
+}
+
+export function classifyMarketRegimeWithConfidence(
+  swings: SwingPoint[],
+  closes: number[],
+  lookback: number = 20,
+): [MarketRegime, number] {
+  if (swings.length === 0 || closes.length === 0) return ['ranging', 0];
 
   const classified = classifySwingSequence(swings);
   const n = closes.length;
@@ -365,7 +473,7 @@ export function classifyMarketRegime(
 
   const recent = classified.filter(([sw]) => sw.index >= windowStart);
 
-  if (recent.length === 0) return 'ranging';
+  if (recent.length === 0) return ['ranging', 0];
 
   const bullish = recent.filter(([, label]) => label === 'HH' || label === 'HL').length;
   const bearish = recent.filter(([, label]) => label === 'LH' || label === 'LL').length;
@@ -374,9 +482,10 @@ export function classifyMarketRegime(
   const bullPct = bullish / total;
   const bearPct = bearish / total;
 
-  if (bullPct > 0.6) return 'uptrend';
-  if (bearPct > 0.6) return 'downtrend';
-  return 'ranging';
+  if (bullPct > 0.6) return ['uptrend', Math.round(bullPct * 100) / 100];
+  if (bearPct > 0.6) return ['downtrend', Math.round(bearPct * 100) / 100];
+  const confidence = Math.round((1 - Math.abs(bullPct - bearPct)) * 100) / 100;
+  return ['ranging', confidence];
 }
 
 export function analyzeStructure(
@@ -392,6 +501,7 @@ export function analyzeStructure(
   supportResistance: SRLevel[];
   liquidity: LiquidityLevel[];
   regime: MarketRegime;
+  regimeConfidence: number;
 } {
   validateLengths(highs, lows, closes);
 
@@ -400,7 +510,7 @@ export function analyzeStructure(
   const breaks = detectStructureBreaks(highs, lows, closes, swings, left, right);
   const supportResistance = detectSupportResistance(highs, lows, closes, swings);
   const liquidity = detectLiquidity(highs, lows, closes, swings);
-  const regime = classifyMarketRegime(swings, closes);
+  const [regime, regimeConfidence] = classifyMarketRegimeWithConfidence(swings, closes);
 
-  return { swings, classified, breaks, supportResistance, liquidity, regime };
+  return { swings, classified, breaks, supportResistance, liquidity, regime, regimeConfidence };
 }

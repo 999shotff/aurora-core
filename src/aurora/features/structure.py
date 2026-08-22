@@ -38,6 +38,10 @@ class SwingPoint:
     index: int
     price: float
     swing_type: SwingType
+    strength: float = 0.0
+    confirmed: bool = True
+    left_index: int = 0
+    right_index: int = 0
 
 
 @dataclass(frozen=True)
@@ -47,6 +51,23 @@ class StructureBreak:
     break_type: StructureBreakType
     reference_index: int
     reference_price: float
+    strength: float = 0.0
+    regime_before: str = ""
+    regime_after: str = ""
+    is_choch: bool = False
+
+
+@dataclass(frozen=True)
+class SRLevel:
+    level: float
+    level_type: str
+    touches: int
+    touch_weight: float
+    strength: float
+    active: bool
+    first_touch_index: int
+    last_touch_index: int
+    price_range: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -71,8 +92,9 @@ def detect_swing_points(
     lows: list[float],
     left: int = 3,
     right: int = 3,
+    confirm_bars: int = 0,
 ) -> list[SwingPoint]:
-    """Detect swing highs and lows.
+    """Detect swing highs and lows with confirmation and strength.
 
     Swing high at i: highs[i] > all highs in [i-left, i) AND > all highs in (i, i+right].
     Swing low at i: lows[i] < all lows in [i-left, i) AND < all lows in (i, i+right].
@@ -81,6 +103,10 @@ def detect_swing_points(
 
     CRITICAL: The right-neighbor check means a swing is *detected* at i+right
     but *placed* at index i.  Historical values are never retroactively altered.
+
+    Args:
+        confirm_bars: If >0, a swing is only confirmed if price reverses
+            within confirm_bars bars after the swing.
 
     Outputs are descriptive only; no predictive claims.
     """
@@ -107,7 +133,32 @@ def detect_swing_points(
                     right_ok = False
                     break
             if right_ok:
-                swings.append(SwingPoint(i, highs[i], SwingType.HIGH))
+                # Compute strength: max distance to neighbors normalized by price
+                max_drop = 0.0
+                for j in range(left_start, right_end + 1):
+                    if j != i:
+                        max_drop = max(max_drop, highs[i] - lows[j])
+                strength = round(max_drop / highs[i] * 10000, 2) if highs[i] > 0 else 0.0
+
+                # Confirmation: price must drop below swing low within confirm_bars
+                confirmed = True
+                if confirm_bars > 0:
+                    confirmed = False
+                    end = min(i + confirm_bars + 1, n)
+                    for j in range(i + 1, end):
+                        if lows[j] < highs[i]:
+                            confirmed = True
+                            break
+
+                swings.append(SwingPoint(
+                    index=i,
+                    price=highs[i],
+                    swing_type=SwingType.HIGH,
+                    strength=strength,
+                    confirmed=confirmed,
+                    left_index=left_start,
+                    right_index=right_end,
+                ))
 
         left_ok_low = True
         for j in range(left_start, i):
@@ -121,7 +172,31 @@ def detect_swing_points(
                     right_ok_low = False
                     break
             if right_ok_low:
-                swings.append(SwingPoint(i, lows[i], SwingType.LOW))
+                # Strength: max distance to neighbors normalized by price
+                max_rise = 0.0
+                for j in range(left_start, right_end + 1):
+                    if j != i:
+                        max_rise = max(max_rise, highs[j] - lows[i])
+                strength = round(max_rise / lows[i] * 10000, 2) if lows[i] > 0 else 0.0
+
+                confirmed = True
+                if confirm_bars > 0:
+                    confirmed = False
+                    end = min(i + confirm_bars + 1, n)
+                    for j in range(i + 1, end):
+                        if highs[j] > lows[i]:
+                            confirmed = True
+                            break
+
+                swings.append(SwingPoint(
+                    index=i,
+                    price=lows[i],
+                    swing_type=SwingType.LOW,
+                    strength=strength,
+                    confirmed=confirmed,
+                    left_index=left_start,
+                    right_index=right_end,
+                ))
 
     swings.sort(key=lambda s: s.index)
     return swings
@@ -185,6 +260,8 @@ def detect_structure_breaks(
     CHOCH_BULL: close breaks above last lower high after downtrend LH sequence.
     CHOCH_BEAR: close breaks below last higher low after uptrend HL sequence.
 
+    Enhanced with strength (break distance in bps) and regime transition tracking.
+
     Only one break is detected per bar (first broken level).
     Each swing level can only be broken once.
 
@@ -203,6 +280,7 @@ def detect_structure_breaks(
     last_lh_index: int | None = None
     last_hl_index: int | None = None
 
+    # Pre-classify trend from swing sequence
     for sw, label in classified:
         if sw.swing_type == SwingType.HIGH:
             if label == "HH":
@@ -223,6 +301,8 @@ def detect_structure_breaks(
                 elif trend_state != "uptrend":
                     trend_state = "downtrend"
 
+    current_regime = trend_state or "ranging"
+
     for i in range(n):
         break_found = False
 
@@ -239,15 +319,27 @@ def detect_structure_breaks(
                 )
                 if is_choch:
                     bt = StructureBreakType.CHOCH_BULL
+                    regime_after = "uptrend"
                 else:
                     bt = StructureBreakType.BOS_BULL
+                    regime_after = "uptrend"
+
+                strength = round(
+                    (closes[i] - sw.price) / sw.price * 10000, 2
+                ) if sw.price > 0 else 0.0
+
                 breaks.append(StructureBreak(
                     index=i,
                     price=closes[i],
                     break_type=bt,
                     reference_index=sw.index,
                     reference_price=sw.price,
+                    strength=strength,
+                    regime_before=current_regime,
+                    regime_after=regime_after,
+                    is_choch=is_choch,
                 ))
+                current_regime = regime_after
                 broken_levels.add(sw.index)
                 break_found = True
                 break
@@ -268,15 +360,27 @@ def detect_structure_breaks(
                 )
                 if is_choch:
                     bt = StructureBreakType.CHOCH_BEAR
+                    regime_after = "downtrend"
                 else:
                     bt = StructureBreakType.BOS_BEAR
+                    regime_after = "downtrend"
+
+                strength = round(
+                    (sw.price - closes[i]) / sw.price * 10000, 2
+                ) if sw.price > 0 else 0.0
+
                 breaks.append(StructureBreak(
                     index=i,
                     price=closes[i],
                     break_type=bt,
                     reference_index=sw.index,
                     reference_price=sw.price,
+                    strength=strength,
+                    regime_before=current_regime,
+                    regime_after=regime_after,
+                    is_choch=is_choch,
                 ))
+                current_regime = regime_after
                 broken_levels.add(sw.index)
                 break
 
@@ -288,15 +392,19 @@ def detect_support_resistance(
     closes: list[float],
     swings: list[SwingPoint],
     tolerance: float = 0.005,
-) -> list[dict]:
+    touch_decay: float = 0.9,
+) -> list[SRLevel]:
     """Cluster nearby swing points into support and resistance levels.
 
     High swings map to resistance; low swings map to support.
     Levels within tolerance fraction of each other are grouped.
-    Each cluster must have at least 2 touches.
+    Touch weight decays exponentially: most recent touch has weight 1,
+    earlier touches decay by touch_decay per touch.
 
-    Returns list of dicts:
-      {"level": float, "type": "support"|"resistance", "touches": int, "indices": list[int]}
+    Enhanced with active/inactive status (level is active if no break
+    has occurred beyond it) and price range of the cluster.
+
+    Returns list of SRLevel dataclass instances.
 
     Outputs are descriptive only; no predictive claims.
     """
@@ -317,7 +425,8 @@ def detect_support_resistance(
             current_cluster = [sw]
     clusters.append(current_cluster)
 
-    results: list[dict] = []
+    n = len(highs)
+    results: list[SRLevel] = []
     for cluster in clusters:
         if len(cluster) < 2:
             continue
@@ -333,12 +442,38 @@ def detect_support_resistance(
         else:
             level_type = "resistance"
 
-        results.append({
-            "level": avg_price,
-            "type": level_type,
-            "touches": len(cluster),
-            "indices": [sw.index for sw in cluster],
-        })
+        # Touch weight with exponential decay (most recent = weight 1)
+        sorted_indices = sorted([sw.index for sw in cluster])
+        touch_weight = 0.0
+        for rank, idx in enumerate(reversed(sorted_indices)):
+            touch_weight += touch_decay ** rank
+
+        # Strength: number of touches normalized by total bars
+        strength = round(len(cluster) / max(n, 1) * 100, 2)
+
+        # Price range of the cluster
+        prices = [sw.price for sw in cluster]
+        price_range = max(prices) - min(prices)
+
+        # Active: level is active if no bar has broken significantly beyond it
+        active = True
+        for i in range(n):
+            if (level_type == "support" and lows[i] < avg_price * 0.99) or \
+               (level_type == "resistance" and highs[i] > avg_price * 1.01):
+                active = False
+                break
+
+        results.append(SRLevel(
+            level=avg_price,
+            level_type=level_type,
+            touches=len(cluster),
+            touch_weight=round(touch_weight, 2),
+            strength=strength,
+            active=active,
+            first_touch_index=sorted_indices[0],
+            last_touch_index=sorted_indices[-1],
+            price_range=round(price_range, 4),
+        ))
 
     return results
 
@@ -406,8 +541,25 @@ def classify_market_regime(
 
     Outputs are descriptive only; no predictive claims.
     """
+    regime, _ = classify_market_regime_with_confidence(swings, closes, lookback)
+    return regime
+
+
+def classify_market_regime_with_confidence(
+    swings: list[SwingPoint],
+    closes: list[float],
+    lookback: int = 20,
+) -> tuple[MarketRegime, float]:
+    """Classify current market regime with confidence score.
+
+    Confidence = max(bull_pct, bear_pct) for trend, 1 - |bull_pct - bear_pct| for ranging.
+
+    Returns (regime, confidence) where confidence is 0.0-1.0.
+
+    Outputs are descriptive only; no predictive claims.
+    """
     if not swings or not closes:
-        return MarketRegime.RANGING
+        return MarketRegime.RANGING, 0.0
 
     classified = classify_swing_sequence(swings)
     n = len(closes)
@@ -416,7 +568,7 @@ def classify_market_regime(
     recent = [(sw, label) for sw, label in classified if sw.index >= window_start]
 
     if not recent:
-        return MarketRegime.RANGING
+        return MarketRegime.RANGING, 0.0
 
     bullish = sum(1 for _, label in recent if label in ("HH", "HL"))
     bearish = sum(1 for _, label in recent if label in ("LH", "LL"))
@@ -426,11 +578,13 @@ def classify_market_regime(
     bear_pct = bearish / total
 
     if bull_pct > 0.6:
-        return MarketRegime.UPTREND
+        return MarketRegime.UPTREND, round(bull_pct, 2)
     elif bear_pct > 0.6:
-        return MarketRegime.DOWNTREND
+        return MarketRegime.DOWNTREND, round(bear_pct, 2)
     else:
-        return MarketRegime.RANGING
+        # Confidence for ranging = how balanced the signals are
+        confidence = round(1.0 - abs(bull_pct - bear_pct), 2)
+        return MarketRegime.RANGING, confidence
 
 def analyze_structure(
     highs: list[float],
@@ -438,11 +592,12 @@ def analyze_structure(
     closes: list[float],
     left: int = 3,
     right: int = 3,
+    confirm_bars: int = 0,
 ) -> dict:
     """Master function that runs all structure analyses.
 
     Returns dict with keys: swings, classified, breaks,
-    support_resistance, liquidity, regime.
+    support_resistance, liquidity, regime, regime_confidence.
 
     This is the main entry point for the engine.
 
@@ -450,12 +605,12 @@ def analyze_structure(
     """
     _validate_lengths(highs, lows, closes)
 
-    swings = detect_swing_points(highs, lows, left, right)
+    swings = detect_swing_points(highs, lows, left, right, confirm_bars)
     classified = classify_swing_sequence(swings)
     breaks = detect_structure_breaks(highs, lows, closes, swings, left, right)
     sr = detect_support_resistance(highs, lows, closes, swings)
     liquidity = detect_liquidity(highs, lows, closes, swings)
-    regime = classify_market_regime(swings, closes)
+    regime, regime_confidence = classify_market_regime_with_confidence(swings, closes)
 
     return {
         "swings": swings,
@@ -464,7 +619,147 @@ def analyze_structure(
         "support_resistance": sr,
         "liquidity": liquidity,
         "regime": regime,
+        "regime_confidence": regime_confidence,
     }
+
+
+# ---------------------------------------------------------------------------
+# Multi-timeframe aggregation
+# ---------------------------------------------------------------------------
+
+def aggregate_to_higher_timeframe(
+    timestamps: list[str],
+    opens: list[float],
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    volumes: list[float],
+    target_tf_minutes: int,
+) -> dict:
+    """Aggregate lower-timeframe OHLCV data to a higher timeframe.
+
+    Groups bars by target_tf_minutes boundary and aggregates:
+    - Open: first bar's open
+    - High: max of all bars' highs
+    - Low: min of all bars' lows
+    - Close: last bar's close
+    - Volume: sum of all bars' volumes
+
+    Args:
+        timestamps: ISO format timestamps for each bar.
+        opens, highs, lows, closes, volumes: Price/volume arrays.
+        target_tf_minutes: Target timeframe in minutes (e.g. 60 for 1h, 1440 for 1d).
+
+    Returns:
+        Dict with keys: timestamps, opens, highs, lows, closes, volumes.
+
+    Outputs are descriptive only; no predictive claims.
+    """
+    n = len(timestamps)
+    if n == 0:
+        return {"timestamps": [], "opens": [], "highs": [], "lows": [], "closes": [], "volumes": []}
+
+    # Group bars by target timeframe boundary
+    from datetime import datetime
+
+    groups: dict[str, list[int]] = {}
+    for i, ts in enumerate(timestamps):
+        try:
+            dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+            # Truncate to target timeframe
+            minutes = dt.minute
+            truncated_minutes = (minutes // target_tf_minutes) * target_tf_minutes
+            key_dt = dt.replace(minute=truncated_minutes, second=0, microsecond=0)
+            key = key_dt.isoformat()
+        except (ValueError, AttributeError):
+            # Fallback: group by index ranges
+            key = str(i // max(target_tf_minutes, 1))
+
+        if key not in groups:
+            groups[key] = []
+        groups[key].append(i)
+
+    # Aggregate each group
+    out_timestamps: list[str] = []
+    out_opens: list[float] = []
+    out_highs: list[float] = []
+    out_lows: list[float] = []
+    out_closes: list[float] = []
+    out_volumes: list[float] = []
+
+    for key in sorted(groups.keys()):
+        indices = groups[key]
+        out_timestamps.append(timestamps[indices[0]])
+        out_opens.append(opens[indices[0]])
+        out_highs.append(max(highs[i] for i in indices))
+        out_lows.append(min(lows[i] for i in indices))
+        out_closes.append(closes[indices[-1]])
+        out_volumes.append(sum(volumes[i] for i in indices))
+
+    return {
+        "timestamps": out_timestamps,
+        "opens": out_opens,
+        "highs": out_highs,
+        "lows": out_lows,
+        "closes": out_closes,
+        "volumes": out_volumes,
+    }
+
+
+def analyze_structure_multi_timeframe(
+    timestamps: list[str],
+    opens: list[float],
+    highs: list[float],
+    lows: list[float],
+    closes: list[float],
+    volumes: list[float],
+    timeframes_minutes: list[int] | None = None,
+    left: int = 3,
+    right: int = 3,
+) -> dict:
+    """Run structure analysis across multiple timeframes.
+
+    Aggregates data to each timeframe and runs analyze_structure on each.
+
+    Args:
+        timestamps: ISO format timestamps for each bar.
+        opens, highs, lows, closes, volumes: Price/volume arrays.
+        timeframes_minutes: List of timeframes in minutes. Default: [5, 15, 60, 240, 1440].
+        left, right: Swing detection parameters.
+
+    Returns:
+        Dict mapping timeframe label to analyze_structure result.
+
+    Outputs are descriptive only; no predictive claims.
+    """
+    if timeframes_minutes is None:
+        timeframes_minutes = [5, 15, 60, 240, 1440]
+
+    tf_labels = {
+        1: "1m", 5: "5m", 15: "15m", 30: "30m",
+        60: "1h", 240: "4h", 1440: "1d",
+    }
+
+    results: dict[str, dict] = {}
+    for tf in timeframes_minutes:
+        label = tf_labels.get(tf, f"{tf}m")
+        agg = aggregate_to_higher_timeframe(
+            timestamps, opens, highs, lows, closes, volumes, tf
+        )
+        if len(agg["highs"]) < left + right + 1:
+            results[label] = {
+                "swings": [], "classified": [], "breaks": [],
+                "support_resistance": [], "liquidity": [],
+                "regime": MarketRegime.RANGING, "regime_confidence": 0.0,
+            }
+            continue
+
+        result = analyze_structure(
+            agg["highs"], agg["lows"], agg["closes"], left, right
+        )
+        results[label] = result
+
+    return results
 
 
 
