@@ -36,16 +36,27 @@ interface BackendHealthResponse {
 }
 
 let _backendAvailable: boolean | null = null;
+let _backendCheckTime = 0;
+const BACKEND_CACHE_TTL = 30_000; // 30 seconds
 
 async function checkBackend(): Promise<boolean> {
-  if (_backendAvailable !== null) return _backendAvailable;
+  const now = Date.now();
+  if (_backendAvailable !== null && now - _backendCheckTime < BACKEND_CACHE_TTL) {
+    return _backendAvailable;
+  }
   try {
-    const resp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(2000) });
+    const resp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(3000) });
     _backendAvailable = resp.ok;
   } catch {
     _backendAvailable = false;
   }
+  _backendCheckTime = now;
   return _backendAvailable;
+}
+
+export function invalidateBackendCache(): void {
+  _backendAvailable = null;
+  _backendCheckTime = 0;
 }
 
 export async function fetchOHLCFromBackend(
@@ -58,22 +69,26 @@ export async function fetchOHLCFromBackend(
   try {
     const tf = timeframe.toLowerCase();
     const resp = await fetch(`${API_BASE}/market/${symbol}/ohlc?timeframe=${tf}&limit=${limit}`, {
-      signal: AbortSignal.timeout(5000),
+      signal: AbortSignal.timeout(15000),
     });
     if (!resp.ok) return null;
     const data: BackendOHLCResponse = await resp.json();
+    if (!data.bars || data.bars.length === 0) return null;
+    const isIntraday = tf !== '1d' && tf !== '1w';
     return {
-      bars: data.bars.map(b => ({
-        time: b.timestamp.split('T')[0],
-        open: b.open,
-        high: b.high,
-        low: b.low,
-        close: b.close,
-        volume: b.volume,
-      })),
+      bars: data.bars
+        .filter(b => b.timestamp && isFinite(b.open) && isFinite(b.high) && isFinite(b.low) && isFinite(b.close) && isFinite(b.volume))
+        .map(b => ({
+          time: isIntraday ? b.timestamp.replace('Z', '').replace(/\.\d+$/, '') : b.timestamp.split('T')[0],
+          open: b.open,
+          high: b.high,
+          low: b.low,
+          close: b.close,
+          volume: b.volume,
+        })),
       isDemo: data.provenance?.is_demo ?? true,
       provider: data.provenance?.provider ?? 'unknown',
-      stale: (data.provenance as Record<string, unknown>)?.stale === true,
+      stale: data.provenance?.source_status === 'stale',
     };
   } catch {
     return null;

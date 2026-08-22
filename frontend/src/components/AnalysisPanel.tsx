@@ -1,5 +1,5 @@
 import React from 'react';
-import { AnalysisMetrics } from '../types';
+import { AnalysisMetrics, IndicatorSeries } from '../types';
 
 interface Props {
   metrics: AnalysisMetrics | null;
@@ -7,9 +7,10 @@ interface Props {
   isDemo?: boolean;
   stale?: boolean;
   provider?: string;
+  activeOverlays?: IndicatorSeries[];
 }
 
-export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale, provider }) => {
+export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale, provider, activeOverlays = [] }) => {
   if (!metrics) {
     return (
       <div style={styles.container}>
@@ -25,6 +26,14 @@ export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale,
   const badgeColor = isDemo ? '#f0883e' : stale ? '#d29922' : '#26a69a';
   const badgeText = isDemo ? 'DEMO' : stale ? 'STALE' : 'LIVE';
   const providerLabel = provider ?? 'unknown';
+
+  const getOverlayValue = (name: string): number | null => {
+    const series = activeOverlays.find(s => s.name === name);
+    if (!series || series.points.length === 0) return null;
+    return series.points[series.points.length - 1].value;
+  };
+
+  const hasOverlay = (name: string) => activeOverlays.some(s => s.name === name);
 
   return (
     <div style={styles.container}>
@@ -43,27 +52,95 @@ export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale,
           color={metrics.volatilityState === 'High' ? '#f85149' : metrics.volatilityState === 'Low' ? '#3fb950' : '#8b949e'} />
       </Section>
 
-      <Section title="Technical Indicators">
-        <Row label="RSI (14)" value={fmt(metrics.rsi)}
-          color={metrics.rsi && metrics.rsi > 70 ? '#f85149' : metrics.rsi && metrics.rsi < 30 ? '#3fb950' : '#f0f6fc'} />
-        <Row label="MACD Line" value={fmt(metrics.macdLine)}
-          color={metrics.macdHistogram && metrics.macdHistogram > 0 ? '#3fb950' : '#f85149'} />
-        <Row label="MACD Signal" value={fmt(metrics.macdSignal)} />
-        <Row label="MACD Histogram" value={fmt(metrics.macdHistogram)}
-          color={metrics.macdHistogram && metrics.macdHistogram > 0 ? '#3fb950' : '#f85149'} />
-        <Row label="ATR (14)" value={fmt(metrics.atr)} />
-      </Section>
+      {hasOverlay('sma_20') && (
+        <Section title="SMA">
+          <Row label="SMA (20)" value={fmt(getOverlayValue('sma_20'))} color="#2196F3" />
+          {hasOverlay('sma_50') && <Row label="SMA (50)" value={fmt(getOverlayValue('sma_50'))} color="#64B5F6" />}
+        </Section>
+      )}
 
-      <Section title="Moving Averages">
-        <Row label="SMA 20" value={fmt(metrics.sma20)} color="#2196F3" />
-        <Row label="EMA 12" value={fmt(metrics.ema12)} color="#FF9800" />
-      </Section>
+      {hasOverlay('ema_12') && (
+        <Section title="EMA">
+          <Row label="EMA (12)" value={fmt(getOverlayValue('ema_12'))} color="#FF9800" />
+          {hasOverlay('ema_26') && <Row label="EMA (26)" value={fmt(getOverlayValue('ema_26'))} color="#FFB74D" />}
+        </Section>
+      )}
 
-      <Section title="Bollinger Bands">
-        <Row label="Upper" value={fmt(metrics.bbUpper)} color="#9C27B0" />
-        <Row label="Middle" value={fmt(metrics.bbMiddle)} color="#9C27B0" />
-        <Row label="Lower" value={fmt(metrics.bbLower)} color="#9C27B0" />
-      </Section>
+      {hasOverlay('rsi_14') && (
+        <Section title="RSI">
+          <Row label="RSI (14)" value={fmt(getOverlayValue('rsi_14'))}
+            color={(getOverlayValue('rsi_14') ?? 50) > 70 ? '#f85149' : (getOverlayValue('rsi_14') ?? 50) < 30 ? '#3fb950' : '#f0f6fc'} />
+        </Section>
+      )}
+
+      {hasOverlay('macd_line') && (
+        <Section title="MACD">
+          <Row label="MACD Line" value={fmt(getOverlayValue('macd_line'))} color="#2196F3" />
+          <Row label="Signal" value={fmt(getOverlayValue('macd_signal'))} color="#FF9800" />
+          <Row label="Histogram" value={fmt(getOverlayValue('macd_histogram'))}
+            color={(getOverlayValue('macd_histogram') ?? 0) > 0 ? '#3fb950' : '#f85149'} />
+        </Section>
+      )}
+
+      {hasOverlay('bb_upper') && (
+        <Section title="Bollinger Bands">
+          <Row label="Upper" value={fmt(getOverlayValue('bb_upper'))} color="#9C27B0" />
+          <Row label="Middle" value={fmt(getOverlayValue('bb_middle'))} color="#9C27B0" />
+          <Row label="Lower" value={fmt(getOverlayValue('bb_lower'))} color="#9C27B0" />
+        </Section>
+      )}
+
+      {hasOverlay('stoch_k') && (
+        <Section title="Stochastic">
+          <Row label="%K" value={fmt(getOverlayValue('stoch_k'))} color="#E91E63" />
+          <Row label="%D" value={fmt(getOverlayValue('stoch_d'))} color="#2196F3" />
+        </Section>
+      )}
+
+      {hasOverlay('adx_line') && (
+        <Section title="ADX/DMI">
+          <Row label="ADX" value={fmt(getOverlayValue('adx_line'))} color="#FFD700" />
+          <Row label="+DI" value={fmt(getOverlayValue('adx_plus_di'))} color="#26a69a" />
+          <Row label="-DI" value={fmt(getOverlayValue('adx_minus_di'))} color="#f85149" />
+        </Section>
+      )}
+
+      {hasOverlay('atr_14') && (
+        <Section title="ATR">
+          <Row label="ATR (14)" value={fmt(getOverlayValue('atr_14'))} color="#FF9800" />
+        </Section>
+      )}
+
+      {hasOverlay('cci_20') && (
+        <Section title="CCI">
+          <Row label="CCI (20)" value={fmt(getOverlayValue('cci_20'))} color="#9C27B0" />
+        </Section>
+      )}
+
+      {hasOverlay('obv') && (
+        <Section title="OBV">
+          <Row label="OBV" value={fmtLarge(getOverlayValue('obv'))} color="#2196F3" />
+        </Section>
+      )}
+
+      {hasOverlay('mfi_14') && (
+        <Section title="MFI">
+          <Row label="MFI (14)" value={fmt(getOverlayValue('mfi_14'))} color="#9C27B0" />
+        </Section>
+      )}
+
+      {!hasOverlay('sma_20') && !hasOverlay('ema_12') && !hasOverlay('rsi_14') && !hasOverlay('macd_line') && (
+        <Section title="Technical Indicators">
+          <Row label="RSI (14)" value={fmt(metrics.rsi)}
+            color={metrics.rsi && metrics.rsi > 70 ? '#f85149' : metrics.rsi && metrics.rsi < 30 ? '#3fb950' : '#f0f6fc'} />
+          <Row label="MACD Line" value={fmt(metrics.macdLine)}
+            color={metrics.macdHistogram && metrics.macdHistogram > 0 ? '#3fb950' : '#f85149'} />
+          <Row label="MACD Signal" value={fmt(metrics.macdSignal)} />
+          <Row label="MACD Histogram" value={fmt(metrics.macdHistogram)}
+            color={metrics.macdHistogram && metrics.macdHistogram > 0 ? '#3fb950' : '#f85149'} />
+          <Row label="ATR (14)" value={fmt(metrics.atr)} />
+        </Section>
+      )}
 
       <Section title="Research Status">
         <div style={styles.researchBox}>
@@ -91,7 +168,15 @@ const Row: React.FC<{ label: string; value: string; color?: string }> = ({ label
 );
 
 function fmt(v: number | null): string {
-  return v !== null ? v.toFixed(v < 10 ? 4 : 2) : '—';
+  return v !== null ? v.toFixed(v < 10 ? 4 : 2) : 'N/A';
+}
+
+function fmtLarge(v: number | null): string {
+  if (v === null) return 'N/A';
+  if (Math.abs(v) >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+  if (Math.abs(v) >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(2) + 'K';
+  return v.toFixed(2);
 }
 
 const styles: Record<string, React.CSSProperties> = {

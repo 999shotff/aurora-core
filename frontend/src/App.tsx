@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from './types';
 import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo } from './services/data';
 import { TopBar } from './components/TopBar';
@@ -33,6 +33,7 @@ function App() {
     () => new Set(['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
   );
   const [structureEnabled, setStructureEnabled] = useState(false);
+  const barsRef = useRef<OHLCBar[]>([]);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -40,6 +41,7 @@ function App() {
     setBackendDown(false);
     try {
       const result = await fetchOHLCV(selectedAsset, selectedTimeframe, 200);
+      barsRef.current = result.bars;
       setBars(result.bars);
       setOverlays(computeAllIndicators(result.bars, enabledIndicators));
       setMetrics(getAnalysisMetrics(result.bars));
@@ -54,11 +56,17 @@ function App() {
     } finally {
       setLoading(false);
     }
-  }, [selectedAsset, selectedTimeframe, enabledIndicators]);
+  }, [selectedAsset, selectedTimeframe]);
 
   useEffect(() => {
     loadData();
   }, [loadData]);
+
+  useEffect(() => {
+    if (barsRef.current.length > 0) {
+      setOverlays(computeAllIndicators(barsRef.current, enabledIndicators));
+    }
+  }, [enabledIndicators]);
 
   useEffect(() => {
     getDataSourceInfo().then(info => {
@@ -88,6 +96,12 @@ function App() {
   };
 
   const lastBar = bars[bars.length - 1];
+  const isIntraday = selectedTimeframe !== '1D' && selectedTimeframe !== '1W';
+  const oscillatorSeries = overlays.filter(s =>
+    ['rsi_14', 'macd_line', 'macd_signal', 'macd_histogram', 'stoch_k', 'stoch_d',
+     'cci_20', 'roc_12', 'williamsr_14', 'adx_line', 'adx_plus_di', 'adx_minus_di',
+     'atr_14', 'obv', 'mfi_14'].includes(s.name)
+  );
 
   if (page === 'landing') {
     return (
@@ -137,7 +151,7 @@ function App() {
             ) : (
               <>
                 <div style={styles.chartArea}>
-                  <PriceChart bars={bars} overlays={overlays} panels={[]} structureEnabled={structureEnabled} />
+                  <PriceChart bars={bars} overlays={overlays} panels={oscillatorSeries} structureEnabled={structureEnabled} isIntraday={isIntraday} />
                 </div>
                 <div style={styles.dataBar}>
                   {lastBar && (
@@ -175,6 +189,7 @@ function App() {
               isDemo={dataSource.isDemo}
               stale={dataSource.stale}
               provider={dataSource.provider}
+              activeOverlays={overlays}
             />
           </div>
           <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} />
