@@ -1,4 +1,4 @@
-import { OHLCBar, IndicatorSeries, Asset, Timeframe, AnalysisMetrics } from '../types';
+import { OHLCBar, IndicatorSeries, Asset, Timeframe, AnalysisMetrics, IndicatorParamDef, IndicatorDisplayType } from '../types';
 
 export const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
 
@@ -199,53 +199,85 @@ function round(val: number, decimals: number): number {
   return Math.round(val * 10 ** decimals) / 10 ** decimals;
 }
 
+function safeNum(v: unknown): number | null {
+  if (typeof v === 'number' && isFinite(v)) return v;
+  return null;
+}
+
+function validateArray(arr: number[], name: string): void {
+  if (!Array.isArray(arr)) throw new Error(`${name} must be an array`);
+}
+
+function validatePeriod(period: number, name: string): number {
+  const p = Math.floor(period);
+  if (!isFinite(p) || p < 1) throw new Error(`${name} must be >= 1`);
+  return p;
+}
+
 export function computeSMA(values: number[], period: number): (number | null)[] {
+  validateArray(values, 'values');
+  const p = validatePeriod(period, 'period');
+  if (values.length === 0) return [];
   const result: (number | null)[] = [];
   for (let i = 0; i < values.length; i++) {
-    if (i < period - 1) { result.push(null); continue; }
-    const slice = values.slice(i - period + 1, i + 1);
-    result.push(round(slice.reduce((a, b) => a + b, 0) / period, 6));
+    if (i < p - 1) { result.push(null); continue; }
+    const slice = values.slice(i - p + 1, i + 1);
+    const valid = slice.filter(v => isFinite(v));
+    if (valid.length < p) { result.push(null); continue; }
+    result.push(round(valid.reduce((a, b) => a + b, 0) / p, 6));
   }
   return result;
 }
 
 export function computeEMA(values: number[], period: number): (number | null)[] {
-  if (!values.length) return [];
-  const result: (number | null)[] = new Array(period - 1).fill(null);
-  const k = 2 / (period + 1);
-  let ema = values.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  validateArray(values, 'values');
+  const p = validatePeriod(period, 'period');
+  if (values.length === 0) return [];
+  if (values.length < p) return new Array(values.length).fill(null);
+  const result: (number | null)[] = new Array(p - 1).fill(null);
+  const k = 2 / (p + 1);
+  let ema = values.slice(0, p).reduce((a, b) => a + b, 0) / p;
   result.push(round(ema, 6));
-  for (let i = period; i < values.length; i++) {
-    ema = values[i] * k + ema * (1 - k);
+  for (let i = p; i < values.length; i++) {
+    const v = values[i];
+    if (!isFinite(v)) { result.push(null); continue; }
+    ema = v * k + ema * (1 - k);
     result.push(round(ema, 6));
   }
   return result;
 }
 
 export function computeRSI(closes: number[], period: number = 14): (number | null)[] {
-  if (closes.length < period + 1) return closes.map(() => null);
-  const result: (number | null)[] = new Array(period).fill(null);
+  validateArray(closes, 'closes');
+  const p = validatePeriod(period, 'period');
+  if (closes.length < p + 1) return closes.map(() => null);
+  const result: (number | null)[] = new Array(p).fill(null);
   const gains: number[] = [];
   const losses: number[] = [];
   for (let i = 1; i < closes.length; i++) {
     const change = closes[i] - closes[i - 1];
-    gains.push(Math.max(change, 0));
-    losses.push(Math.max(-change, 0));
+    gains.push(isFinite(change) ? Math.max(change, 0) : 0);
+    losses.push(isFinite(change) ? Math.max(-change, 0) : 0);
   }
-  let avgGain = gains.slice(0, period).reduce((a, b) => a + b, 0) / period;
-  let avgLoss = losses.slice(0, period).reduce((a, b) => a + b, 0) / period;
+  let avgGain = gains.slice(0, p).reduce((a, b) => a + b, 0) / p;
+  let avgLoss = losses.slice(0, p).reduce((a, b) => a + b, 0) / p;
   result.push(avgLoss === 0 ? 100 : round(100 - 100 / (1 + avgGain / avgLoss), 2));
-  for (let i = period; i < gains.length; i++) {
-    avgGain = (avgGain * (period - 1) + gains[i]) / period;
-    avgLoss = (avgLoss * (period - 1) + losses[i]) / period;
+  for (let i = p; i < gains.length; i++) {
+    avgGain = (avgGain * (p - 1) + gains[i]) / p;
+    avgLoss = (avgLoss * (p - 1) + losses[i]) / p;
     result.push(avgLoss === 0 ? 100 : round(100 - 100 / (1 + avgGain / avgLoss), 2));
   }
   return result;
 }
 
-export function computeMACD(closes: number[], fast = 12, slow = 26, signal = 9) {
-  const emaFast = computeEMA(closes, fast);
-  const emaSlow = computeEMA(closes, slow);
+export function computeMACD(closes: number[], fast = 12, slow = 26, signal = 9): { macdLine: (number | null)[]; signalLine: (number | null)[]; histogram: (number | null)[] } {
+  validateArray(closes, 'closes');
+  const f = validatePeriod(fast, 'fast');
+  const s = validatePeriod(slow, 'slow');
+  const sig = validatePeriod(signal, 'signal');
+  if (closes.length === 0) return { macdLine: [], signalLine: [], histogram: [] };
+  const emaFast = computeEMA(closes, f);
+  const emaSlow = computeEMA(closes, s);
   const macdLine: (number | null)[] = [];
   for (let i = 0; i < closes.length; i++) {
     if (emaFast[i] !== null && emaSlow[i] !== null) {
@@ -273,14 +305,16 @@ export function computeMACD(closes: number[], fast = 12, slow = 26, signal = 9) 
   return { macdLine, signalLine, histogram };
 }
 
-export function computeBollinger(closes: number[], period = 20, numStd = 2) {
-  const middle = computeSMA(closes, period);
+export function computeBollinger(closes: number[], period = 20, numStd = 2): { upper: (number | null)[]; middle: (number | null)[]; lower: (number | null)[] } {
+  validateArray(closes, 'closes');
+  const p = validatePeriod(period, 'period');
+  const middle = computeSMA(closes, p);
   const upper: (number | null)[] = [];
   const lower: (number | null)[] = [];
   for (let i = 0; i < closes.length; i++) {
     if (middle[i] === null) { upper.push(null); lower.push(null); continue; }
-    const window = closes.slice(i - period + 1, i + 1);
-    const std = Math.sqrt(window.reduce((s, x) => s + (x - (middle[i] as number)) ** 2, 0) / period);
+    const window = closes.slice(i - p + 1, i + 1);
+    const std = Math.sqrt(window.reduce((s, x) => s + (x - (middle[i] as number)) ** 2, 0) / p);
     upper.push(round((middle[i] as number) + numStd * std, 6));
     lower.push(round((middle[i] as number) - numStd * std, 6));
   }
@@ -288,28 +322,39 @@ export function computeBollinger(closes: number[], period = 20, numStd = 2) {
 }
 
 export function computeATR(highs: number[], lows: number[], closes: number[], period = 14): (number | null)[] {
+  validateArray(highs, 'highs');
+  validateArray(lows, 'lows');
+  validateArray(closes, 'closes');
+  const p = validatePeriod(period, 'period');
+  if (highs.length !== lows.length || highs.length !== closes.length) throw new Error('Array length mismatch');
   if (closes.length < 2) return closes.map(() => null);
   const trValues: number[] = [highs[0] - lows[0]];
   for (let i = 1; i < closes.length; i++) {
     trValues.push(Math.max(highs[i] - lows[i], Math.abs(highs[i] - closes[i - 1]), Math.abs(lows[i] - closes[i - 1])));
   }
-  return computeSMA(trValues, period);
+  return computeSMA(trValues, p);
 }
 
 function computeRollingMax(values: number[], window: number): (number | null)[] {
+  validateArray(values, 'values');
+  const w = validatePeriod(window, 'window');
   const result: (number | null)[] = [];
   for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) { result.push(null); continue; }
-    result.push(Math.max(...values.slice(i + 1 - window, i + 1)));
+    if (i + 1 < w) { result.push(null); continue; }
+    const slice = values.slice(i + 1 - w, i + 1).filter(v => isFinite(v));
+    result.push(slice.length > 0 ? Math.max(...slice) : null);
   }
   return result;
 }
 
 function computeRollingMin(values: number[], window: number): (number | null)[] {
+  validateArray(values, 'values');
+  const w = validatePeriod(window, 'window');
   const result: (number | null)[] = [];
   for (let i = 0; i < values.length; i++) {
-    if (i + 1 < window) { result.push(null); continue; }
-    result.push(Math.min(...values.slice(i + 1 - window, i + 1)));
+    if (i + 1 < w) { result.push(null); continue; }
+    const slice = values.slice(i + 1 - w, i + 1).filter(v => isFinite(v));
+    result.push(slice.length > 0 ? Math.min(...slice) : null);
   }
   return result;
 }
@@ -318,17 +363,23 @@ export function computeStochastic(
   highs: number[], lows: number[], closes: number[],
   kPeriod = 14, dPeriod = 3, smoothK = 3
 ): { k: (number | null)[]; d: (number | null)[] } {
+  validateArray(highs, 'highs'); validateArray(lows, 'lows'); validateArray(closes, 'closes');
+  if (highs.length !== lows.length || highs.length !== closes.length) throw new Error('Array length mismatch');
   const n = closes.length;
+  const kp = validatePeriod(kPeriod, 'kPeriod');
+  const dp = validatePeriod(dPeriod, 'dPeriod');
+  const sk = validatePeriod(smoothK, 'smoothK');
+  if (n === 0) return { k: [], d: [] };
   const kRaw: (number | null)[] = [];
   for (let i = 0; i < n; i++) {
-    if (i + 1 < kPeriod) { kRaw.push(null); continue; }
-    const start = i + 1 - kPeriod;
+    if (i + 1 < kp) { kRaw.push(null); continue; }
+    const start = i + 1 - kp;
     const hh = Math.max(...highs.slice(start, i + 1));
     const ll = Math.min(...lows.slice(start, i + 1));
     kRaw.push(hh === ll ? 50 : (closes[i] - ll) / (hh - ll) * 100);
   }
   const kValid = kRaw.filter((v): v is number => v !== null);
-  const kSmoothedRaw = computeSMA(kValid, smoothK);
+  const kSmoothedRaw = computeSMA(kValid, sk);
   const kSmoothed: (number | null)[] = [];
   let ki = 0;
   for (const v of kRaw) {
@@ -337,7 +388,7 @@ export function computeStochastic(
     }
   }
   const kValidSmoothed = kSmoothed.filter((v): v is number => v !== null);
-  const dRaw = computeSMA(kValidSmoothed, dPeriod);
+  const dRaw = computeSMA(kValidSmoothed, dp);
   const d: (number | null)[] = [];
   let di = 0;
   for (const v of kSmoothed) {
@@ -351,6 +402,9 @@ export function computeStochastic(
 export function computeAdxDmi(
   highs: number[], lows: number[], closes: number[], period = 14
 ): { plusDi: (number | null)[]; minusDi: (number | null)[]; adx: (number | null)[] } {
+  validateArray(highs, 'highs'); validateArray(lows, 'lows'); validateArray(closes, 'closes');
+  if (highs.length !== lows.length || highs.length !== closes.length) throw new Error('Array length mismatch');
+  const p = validatePeriod(period, 'period');
   const n = closes.length;
   if (n < 2) {
     return { plusDi: Array(n).fill(null), minusDi: Array(n).fill(null), adx: Array(n).fill(null) };
@@ -365,9 +419,9 @@ export function computeAdxDmi(
     plusDm.push(up > down && up > 0 ? up : 0);
     minusDm.push(down > up && down > 0 ? down : 0);
   }
-  const atrVals = computeEMA(trList, period);
-  const plusDmEma = computeEMA(plusDm, period);
-  const minusDmEma = computeEMA(minusDm, period);
+  const atrVals = computeEMA(trList, p);
+  const plusDmEma = computeEMA(plusDm, p);
+  const minusDmEma = computeEMA(minusDm, p);
   const plusDi: (number | null)[] = [];
   const minusDi: (number | null)[] = [];
   const dxList: (number | null)[] = [];
@@ -383,7 +437,7 @@ export function computeAdxDmi(
     }
   }
   const dxValid = dxList.filter((v): v is number => v !== null);
-  const adxRaw = computeEMA(dxValid, period);
+  const adxRaw = computeEMA(dxValid, p);
   const adx: (number | null)[] = [];
   let ai = 0;
   for (const v of dxList) {
@@ -397,34 +451,42 @@ export function computeAdxDmi(
 export function computeCCI(
   highs: number[], lows: number[], closes: number[], period = 20
 ): (number | null)[] {
+  validateArray(highs, 'highs'); validateArray(lows, 'lows'); validateArray(closes, 'closes');
+  if (highs.length !== lows.length || highs.length !== closes.length) throw new Error('Array length mismatch');
+  const p = validatePeriod(period, 'period');
   const n = closes.length;
   const tp = highs.map((h, i) => (h + lows[i] + closes[i]) / 3);
-  const tpSma = computeSMA(tp, period);
+  const tpSma = computeSMA(tp, p);
   const result: (number | null)[] = [];
   for (let i = 0; i < n; i++) {
     if (tpSma[i] === null) { result.push(null); continue; }
-    const start = i + 1 - period;
+    const start = i + 1 - p;
     const segment = tp.slice(start, i + 1);
-    const meanDev = segment.reduce((s, x) => s + Math.abs(x - tpSma[i]!), 0) / period;
+    const meanDev = segment.reduce((s, x) => s + Math.abs(x - tpSma[i]!), 0) / p;
     result.push(meanDev === 0 ? 0 : (tp[i] - tpSma[i]!) / (0.015 * meanDev));
   }
   return result;
 }
 
 export function computeROC(values: number[], period = 12): (number | null)[] {
+  validateArray(values, 'values');
+  const p = validatePeriod(period, 'period');
   return values.map((v, i) =>
-    i < period || values[i - period] === 0 ? null : (v - values[i - period]) / values[i - period] * 100
+    i < p || values[i - p] === 0 || !isFinite(v) ? null : (v - values[i - p]) / values[i - p] * 100
   );
 }
 
 export function computeWilliamsR(
   highs: number[], lows: number[], closes: number[], period = 14
 ): (number | null)[] {
+  validateArray(highs, 'highs'); validateArray(lows, 'lows'); validateArray(closes, 'closes');
+  if (highs.length !== lows.length || highs.length !== closes.length) throw new Error('Array length mismatch');
+  const p = validatePeriod(period, 'period');
   const n = closes.length;
   const result: (number | null)[] = [];
   for (let i = 0; i < n; i++) {
-    if (i + 1 < period) { result.push(null); continue; }
-    const start = i + 1 - period;
+    if (i + 1 < p) { result.push(null); continue; }
+    const start = i + 1 - p;
     const hh = Math.max(...highs.slice(start, i + 1));
     const ll = Math.min(...lows.slice(start, i + 1));
     result.push(hh === ll ? -50 : (hh - closes[i]) / (hh - ll) * -100);
@@ -433,6 +495,9 @@ export function computeWilliamsR(
 }
 
 export function computeOBV(closes: number[], volumes: number[]): number[] {
+  validateArray(closes, 'closes');
+  validateArray(volumes, 'volumes');
+  if (closes.length !== volumes.length) throw new Error('Array length mismatch');
   if (closes.length === 0) return [];
   const result = [0];
   for (let i = 1; i < closes.length; i++) {
@@ -447,6 +512,10 @@ export function computeOBV(closes: number[], volumes: number[]): number[] {
 export function computeVWAP(
   highs: number[], lows: number[], closes: number[], volumes: number[]
 ): (number | null)[] {
+  validateArray(highs, 'highs'); validateArray(lows, 'lows');
+  validateArray(closes, 'closes'); validateArray(volumes, 'volumes');
+  if (highs.length !== lows.length || highs.length !== closes.length || highs.length !== volumes.length)
+    throw new Error('Array length mismatch');
   const n = closes.length;
   const result: (number | null)[] = [];
   let cumTpVol = 0, cumVol = 0;
@@ -462,13 +531,18 @@ export function computeVWAP(
 export function computeMFI(
   highs: number[], lows: number[], closes: number[], volumes: number[], period = 14
 ): (number | null)[] {
+  validateArray(highs, 'highs'); validateArray(lows, 'lows');
+  validateArray(closes, 'closes'); validateArray(volumes, 'volumes');
+  if (highs.length !== lows.length || highs.length !== closes.length || highs.length !== volumes.length)
+    throw new Error('Array length mismatch');
+  const p = validatePeriod(period, 'period');
   const n = closes.length;
   const tp = highs.map((h, i) => (h + lows[i] + closes[i]) / 3);
   const mf = tp.map((t, i) => t * volumes[i]);
   const result: (number | null)[] = [];
   for (let i = 0; i < n; i++) {
-    if (i < period) { result.push(null); continue; }
-    const start = i + 1 - period;
+    if (i < p) { result.push(null); continue; }
+    const start = i + 1 - p;
     let posMf = 0, negMf = 0;
     for (let j = start + 1; j <= i; j++) {
       if (tp[j] > tp[j - 1]) posMf += mf[j];
@@ -486,27 +560,32 @@ export function computeIchimoku(
   tenkanSen: (number | null)[]; kijunSen: (number | null)[];
   senkouA: (number | null)[]; senkouB: (number | null)[]; chikou: (number | null)[];
 } {
-  const tenkanMax = computeRollingMax(highs, tenkanP);
-  const tenkanMin = computeRollingMin(lows, tenkanP);
+  validateArray(highs, 'highs'); validateArray(lows, 'lows'); validateArray(closes, 'closes');
+  if (highs.length !== lows.length || highs.length !== closes.length) throw new Error('Array length mismatch');
+  const tp = validatePeriod(tenkanP, 'tenkanP');
+  const kp = validatePeriod(kijunP, 'kijunP');
+  const sbp = validatePeriod(senkouBP, 'senkouBP');
+  const tenkanMax = computeRollingMax(highs, tp);
+  const tenkanMin = computeRollingMin(lows, tp);
   const tenkanSen = tenkanMax.map((mx, i) =>
     mx !== null && tenkanMin[i] !== null ? (mx + tenkanMin[i]) / 2 : null
   );
-  const kijunMax = computeRollingMax(highs, kijunP);
-  const kijunMin = computeRollingMin(lows, kijunP);
+  const kijunMax = computeRollingMax(highs, kp);
+  const kijunMin = computeRollingMin(lows, kp);
   const kijunSen = kijunMax.map((mx, i) =>
     mx !== null && kijunMin[i] !== null ? (mx + kijunMin[i]) / 2 : null
   );
   const senkouA = tenkanSen.map((t, i) =>
     t !== null && kijunSen[i] !== null ? (t + kijunSen[i]!) / 2 : null
   );
-  const senkouBMax = computeRollingMax(highs, senkouBP);
-  const senkouBMin = computeRollingMin(lows, senkouBP);
+  const senkouBMax = computeRollingMax(highs, sbp);
+  const senkouBMin = computeRollingMin(lows, sbp);
   const senkouB = senkouBMax.map((mx, i) =>
     mx !== null && senkouBMin[i] !== null ? (mx + senkouBMin[i]) / 2 : null
   );
   const chikou: (number | null)[] = new Array(closes.length).fill(null);
   for (let i = 0; i < closes.length; i++) {
-    const target = i - kijunP;
+    const target = i - kp;
     if (target >= 0) chikou[target] = closes[i];
   }
   return { tenkanSen, kijunSen, senkouA, senkouB, chikou };
@@ -516,6 +595,8 @@ export function computePivotPoints(
   highs: number[], lows: number[], closes: number[]
 ): { pivot: (number | null)[]; r1: (number | null)[]; r2: (number | null)[]; r3: (number | null)[];
   s1: (number | null)[]; s2: (number | null)[]; s3: (number | null)[] } {
+  validateArray(highs, 'highs'); validateArray(lows, 'lows'); validateArray(closes, 'closes');
+  if (highs.length !== lows.length || highs.length !== closes.length) throw new Error('Array length mismatch');
   const n = closes.length;
   const pivot: (number | null)[] = [null];
   const r1: (number | null)[] = [null]; const r2: (number | null)[] = [null];
@@ -548,53 +629,90 @@ export function computeAllIndicators(bars: OHLCBar[], enabled?: Set<string>): In
   const closes = bars.map(b => b.close);
   const highs = bars.map(b => b.high);
   const lows = bars.map(b => b.low);
+  const volumes = bars.map(b => b.volume);
   const times = bars.map(b => b.time);
   const series: IndicatorSeries[] = [];
   const on = (id: string) => !enabled || enabled.has(id);
 
-  const addSeries = (name: string, values: (number | null)[]) => {
+  const addSeries = (name: string, values: (number | null)[], params: Record<string, number | string> = {}) => {
     series.push({
       name,
-      parameters: {},
+      parameters: params,
       points: values.map((v, i) => v !== null ? { time: times[i], value: v } : null).filter((p): p is { time: string; value: number } => p !== null),
     });
   };
 
   if (on('sma')) {
-    addSeries('sma_20', computeSMA(closes, 20));
-    addSeries('sma_50', computeSMA(closes, 50));
+    addSeries('sma_20', computeSMA(closes, 20), { period: 20 });
+    addSeries('sma_50', computeSMA(closes, 50), { period: 50 });
   }
   if (on('ema')) {
-    addSeries('ema_12', computeEMA(closes, 12));
-    addSeries('ema_26', computeEMA(closes, 26));
+    addSeries('ema_12', computeEMA(closes, 12), { period: 12 });
+    addSeries('ema_26', computeEMA(closes, 26), { period: 26 });
+  }
+  if (on('adx')) {
+    const adx = computeAdxDmi(highs, lows, closes, 14);
+    addSeries('adx_plus_di', adx.plusDi, { period: 14 });
+    addSeries('adx_minus_di', adx.minusDi, { period: 14 });
+    addSeries('adx_line', adx.adx, { period: 14 });
+  }
+  if (on('ichimoku')) {
+    const ich = computeIchimoku(highs, lows, closes);
+    addSeries('ichimoku_tenkan', ich.tenkanSen, { tenkan: 9, kijun: 26, senkouB: 52 });
+    addSeries('ichimoku_kijun', ich.kijunSen);
+    addSeries('ichimoku_senkou_a', ich.senkouA);
+    addSeries('ichimoku_senkou_b', ich.senkouB);
   }
   if (on('rsi')) {
-    addSeries('rsi_14', computeRSI(closes, 14));
-  }
-  if (on('atr')) {
-    addSeries('atr_14', computeATR(highs, lows, closes, 14));
+    addSeries('rsi_14', computeRSI(closes, 14), { period: 14 });
   }
   if (on('macd')) {
     const macd = computeMACD(closes);
-    addSeries('macd_line', macd.macdLine);
+    addSeries('macd_line', macd.macdLine, { fast: 12, slow: 26, signal: 9 });
     addSeries('macd_signal', macd.signalLine);
     addSeries('macd_histogram', macd.histogram);
   }
+  if (on('stochastic')) {
+    const stoch = computeStochastic(highs, lows, closes);
+    addSeries('stoch_k', stoch.k, { kPeriod: 14, dPeriod: 3, smoothK: 3 });
+    addSeries('stoch_d', stoch.d);
+  }
+  if (on('cci')) {
+    addSeries('cci_20', computeCCI(highs, lows, closes, 20), { period: 20 });
+  }
+  if (on('roc')) {
+    addSeries('roc_12', computeROC(closes, 12), { period: 12 });
+  }
+  if (on('williamsr')) {
+    addSeries('williamsr_14', computeWilliamsR(highs, lows, closes, 14), { period: 14 });
+  }
   if (on('bb')) {
     const bb = computeBollinger(closes);
-    addSeries('bb_upper', bb.upper);
+    addSeries('bb_upper', bb.upper, { period: 20, stdDev: 2 });
     addSeries('bb_middle', bb.middle);
     addSeries('bb_lower', bb.lower);
   }
-  if (on('ichimoku')) {
-    const ichimoku = computeIchimoku(highs, lows, closes);
-    addSeries('ichimoku_tenkan', ichimoku.tenkanSen);
-    addSeries('ichimoku_kijun', ichimoku.kijunSen);
-    addSeries('ichimoku_senkou_a', ichimoku.senkouA);
-    addSeries('ichimoku_senkou_b', ichimoku.senkouB);
+  if (on('atr')) {
+    addSeries('atr_14', computeATR(highs, lows, closes, 14), { period: 14 });
+  }
+  if (on('obv')) {
+    addSeries('obv', computeOBV(closes, volumes));
   }
   if (on('vwap')) {
-    addSeries('vwap', computeVWAP(highs, lows, closes, bars.map(b => b.volume)));
+    addSeries('vwap', computeVWAP(highs, lows, closes, volumes));
+  }
+  if (on('mfi')) {
+    addSeries('mfi_14', computeMFI(highs, lows, closes, volumes, 14), { period: 14 });
+  }
+  if (on('pivot')) {
+    const piv = computePivotPoints(highs, lows, closes);
+    addSeries('pivot_pp', piv.pivot);
+    addSeries('pivot_r1', piv.r1);
+    addSeries('pivot_r2', piv.r2);
+    addSeries('pivot_r3', piv.r3);
+    addSeries('pivot_s1', piv.s1);
+    addSeries('pivot_s2', piv.s2);
+    addSeries('pivot_s3', piv.s3);
   }
 
   return series;
@@ -607,26 +725,61 @@ export interface IndicatorDef {
   name: string;
   group: IndicatorGroup;
   overlay: boolean;
+  displayType: IndicatorDisplayType;
+  minDataLength: number;
+  params: IndicatorParamDef[];
 }
 
 export const INDICATOR_GROUPS: IndicatorDef[] = [
-  { id: 'sma', name: 'SMA', group: 'TREND', overlay: true },
-  { id: 'ema', name: 'EMA', group: 'TREND', overlay: true },
-  { id: 'adx', name: 'ADX/DMI', group: 'TREND', overlay: false },
-  { id: 'ichimoku', name: 'Ichimoku', group: 'TREND', overlay: true },
-  { id: 'rsi', name: 'RSI', group: 'MOMENTUM', overlay: false },
-  { id: 'macd', name: 'MACD', group: 'MOMENTUM', overlay: false },
-  { id: 'stochastic', name: 'Stochastic', group: 'MOMENTUM', overlay: false },
-  { id: 'cci', name: 'CCI', group: 'MOMENTUM', overlay: false },
-  { id: 'roc', name: 'ROC', group: 'MOMENTUM', overlay: false },
-  { id: 'williamsr', name: 'Williams %R', group: 'MOMENTUM', overlay: false },
-  { id: 'bb', name: 'Bollinger', group: 'VOLATILITY', overlay: true },
-  { id: 'atr', name: 'ATR', group: 'VOLATILITY', overlay: false },
-  { id: 'obv', name: 'OBV', group: 'VOLUME', overlay: false },
-  { id: 'vwap', name: 'VWAP', group: 'VOLUME', overlay: true },
-  { id: 'mfi', name: 'MFI', group: 'VOLUME', overlay: false },
-  { id: 'pivot', name: 'Pivot Points', group: 'LEVELS', overlay: true },
-  { id: 'fib', name: 'Fibonacci', group: 'LEVELS', overlay: true },
+  { id: 'sma', name: 'SMA', group: 'TREND', overlay: true, displayType: 'overlay', minDataLength: 20,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 200, step: 1 }] },
+  { id: 'ema', name: 'EMA', group: 'TREND', overlay: true, displayType: 'overlay', minDataLength: 26,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 2, max: 200, step: 1 }] },
+  { id: 'adx', name: 'ADX/DMI', group: 'TREND', overlay: false, displayType: 'oscillator', minDataLength: 28,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+  { id: 'ichimoku', name: 'Ichimoku', group: 'TREND', overlay: true, displayType: 'overlay', minDataLength: 52,
+    params: [
+      { id: 'tenkan', label: 'Tenkan', type: 'number', default: 9, min: 2, max: 100, step: 1 },
+      { id: 'kijun', label: 'Kijun', type: 'number', default: 26, min: 2, max: 200, step: 1 },
+      { id: 'senkouB', label: 'Senkou B', type: 'number', default: 52, min: 2, max: 200, step: 1 },
+    ] },
+  { id: 'rsi', name: 'RSI', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 15,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+  { id: 'macd', name: 'MACD', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 35,
+    params: [
+      { id: 'fast', label: 'Fast', type: 'number', default: 12, min: 2, max: 100, step: 1 },
+      { id: 'slow', label: 'Slow', type: 'number', default: 26, min: 2, max: 200, step: 1 },
+      { id: 'signal', label: 'Signal', type: 'number', default: 9, min: 2, max: 100, step: 1 },
+    ] },
+  { id: 'stochastic', name: 'Stochastic', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 17,
+    params: [
+      { id: 'kPeriod', label: '%K', type: 'number', default: 14, min: 2, max: 100, step: 1 },
+      { id: 'dPeriod', label: '%D', type: 'number', default: 3, min: 2, max: 50, step: 1 },
+      { id: 'smoothK', label: 'Smooth', type: 'number', default: 3, min: 1, max: 50, step: 1 },
+    ] },
+  { id: 'cci', name: 'CCI', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 20,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 100, step: 1 }] },
+  { id: 'roc', name: 'ROC', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 13,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 1, max: 100, step: 1 }] },
+  { id: 'williamsr', name: 'Williams %R', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 14,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+  { id: 'bb', name: 'Bollinger', group: 'VOLATILITY', overlay: true, displayType: 'overlay', minDataLength: 20,
+    params: [
+      { id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 200, step: 1 },
+      { id: 'stdDev', label: 'Std Dev', type: 'number', default: 2, min: 0.5, max: 5, step: 0.5 },
+    ] },
+  { id: 'atr', name: 'ATR', group: 'VOLATILITY', overlay: false, displayType: 'oscillator', minDataLength: 14,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 1, max: 100, step: 1 }] },
+  { id: 'obv', name: 'OBV', group: 'VOLUME', overlay: false, displayType: 'oscillator', minDataLength: 2,
+    params: [] },
+  { id: 'vwap', name: 'VWAP', group: 'VOLUME', overlay: true, displayType: 'overlay', minDataLength: 1,
+    params: [] },
+  { id: 'mfi', name: 'MFI', group: 'VOLUME', overlay: false, displayType: 'oscillator', minDataLength: 15,
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+  { id: 'pivot', name: 'Pivot Points', group: 'LEVELS', overlay: true, displayType: 'overlay', minDataLength: 2,
+    params: [] },
+  { id: 'fib', name: 'Fibonacci', group: 'LEVELS', overlay: true, displayType: 'overlay', minDataLength: 2,
+    params: [] },
 ];
 
 export function getAnalysisMetrics(bars: OHLCBar[]): AnalysisMetrics {

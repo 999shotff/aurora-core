@@ -48,6 +48,19 @@ export interface WatchlistItem {
   volume: number | null;
 }
 
+export interface IndicatorParamDef {
+  id: string;
+  label: string;
+  type: 'number';
+  default: number;
+  min: number;
+  max: number;
+  step: number;
+}
+
+export type IndicatorOutputType = 'line' | 'histogram' | 'area';
+export type IndicatorDisplayType = 'overlay' | 'oscillator';
+
 export interface AnalysisMetrics {
   rsi: number | null;
   macdLine: number | null;
