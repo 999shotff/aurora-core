@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { API_BASE } from '../services/data';
 
 interface SettingsPageProps {
   dataMode: 'demo' | 'live';
@@ -47,15 +48,15 @@ const CHART_STYLES = ['candlestick', 'line', 'area'] as const;
 
 const STORAGE_KEY = 'aurora_settings';
 
-const VERSION = '0.1.0-alpha';
-const BUILD_DATE = '2026-08-21';
-const EXPLORATION_PHASE = 'M15-Decision-Gate';
+const VERSION = '0.2.0';
+const BUILD_DATE = '2026-08-22';
+const EXPLORATION_PHASE = 'M24-Market-Structure';
 
 const PROVIDERS: ProviderStatus[] = [
-  { name: 'Yahoo Finance', healthy: true, lastUpdate: '2026-08-21T12:34:00Z' },
-  { name: 'CoinGecko', healthy: true, lastUpdate: '2026-08-21T12:33:45Z' },
+  { name: 'Yahoo Finance', healthy: true, lastUpdate: '2026-08-22T00:00:00Z' },
+  { name: 'CoinGecko', healthy: true, lastUpdate: '2026-08-22T00:00:00Z' },
   { name: 'Open Exchange Rates', healthy: false, lastUpdate: '2026-08-20T08:12:00Z' },
-  { name: 'Binance Public API', healthy: true, lastUpdate: '2026-08-21T12:33:58Z' },
+  { name: 'Binance Public API', healthy: true, lastUpdate: '2026-08-22T00:00:00Z' },
 ];
 
 function loadSettings(): Settings {
@@ -184,7 +185,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ dataMode, onDataModeChange 
   useEffect(() => {
     const checkHealth = async () => {
       try {
-        const res = await fetch('http://127.0.0.1:8000/health', { signal: AbortSignal.timeout(3000) });
+        const res = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(3000) });
         setBackendHealthy(res.ok);
       } catch {
         setBackendHealthy(false);
@@ -431,7 +432,7 @@ const SettingsPage: React.FC<SettingsPageProps> = ({ dataMode, onDataModeChange 
                   <span style={styles.healthLabel}>Endpoint</span>
                 </div>
                 <span style={{ ...styles.healthStatus, color: '#8b949e', fontFamily: 'monospace', fontSize: '12px' }}>
-                  127.0.0.1:8000
+                  {API_BASE.replace('https://', '')}
                 </span>
               </div>
             </div>

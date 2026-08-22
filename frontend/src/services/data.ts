@@ -1,6 +1,6 @@
 import { OHLCBar, IndicatorSeries, Asset, Timeframe, AnalysisMetrics } from '../types';
 
-const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
+export const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
 
 interface BackendOHLCResponse {
   symbol: string;

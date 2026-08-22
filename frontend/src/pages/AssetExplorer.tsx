@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import { ASSETS, Asset, AssetCategory } from '../types';
+import { API_BASE } from '../services/data';
 
 interface Quote {
   symbol: string;
@@ -101,7 +102,7 @@ const AssetExplorer: React.FC<{ onSelectAsset: (symbol: string) => void }> = ({ 
   const fetchQuote = useCallback(async (symbol: string) => {
     setLoading(prev => ({ ...prev, [symbol]: true }));
     try {
-      const res = await fetch(`http://127.0.0.1:8000/market/${symbol}/quote`);
+      const res = await fetch(`${API_BASE}/market/${symbol}/quote`);
       if (!res.ok) throw new Error('not ok');
       const data: Quote = await res.json();
       setQuotes(prev => ({ ...prev, [symbol]: data }));
