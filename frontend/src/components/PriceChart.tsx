@@ -1,14 +1,16 @@
 import React, { useEffect, useRef } from 'react';
 import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData } from 'lightweight-charts';
 import { OHLCBar, IndicatorSeries } from '../types';
+import { detectSwingPoints, detectStructureBreaks, SwingPoint, StructureBreak } from '../services/structure';
 
 interface Props {
   bars: OHLCBar[];
   overlays: IndicatorSeries[];
   panels: IndicatorSeries[];
+  structureEnabled?: boolean;
 }
 
-export const PriceChart: React.FC<Props> = ({ bars, overlays, panels }) => {
+export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureEnabled = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -70,7 +72,41 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels }) => {
       color: b.close >= b.open ? 'rgba(38,166,154,0.3)' : 'rgba(239,83,80,0.3)',
     }));
     volumeRef.current.setData(volumeData);
-  }, [bars]);
+
+    // Add structure markers if enabled
+    if (structureEnabled && bars.length > 4) {
+      const highs = bars.map(b => b.high);
+      const lows = bars.map(b => b.low);
+      const closes = bars.map(b => b.close);
+      const timeToBar: Record<string, number> = {};
+      bars.forEach((b, i) => { timeToBar[b.time] = i; });
+
+      const swings = detectSwingPoints(highs, lows, 3, 3);
+      const markers = swings.map(sp => ({
+        time: bars[sp.index]?.time as unknown as number,
+        position: sp.swing_type === 'high' ? 'aboveBar' as const : 'belowBar' as const,
+        color: sp.swing_type === 'high' ? '#FF9800' : '#2196F3',
+        shape: sp.swing_type === 'high' ? 'arrowDown' as const : 'arrowUp' as const,
+        text: sp.swing_type === 'high' ? 'SH' : 'SL',
+      }));
+
+      const breaks = detectStructureBreaks(highs, lows, closes, swings, 3, 3);
+      for (const br of breaks) {
+        const bar = bars[br.index];
+        if (!bar) continue;
+        markers.push({
+          time: bar.time as unknown as number,
+          position: br.break_type.includes('bull') ? 'belowBar' as const : 'aboveBar' as const,
+          color: br.break_type.includes('choch') ? '#E91E63' : '#26a69a',
+          shape: 'circle' as const,
+          text: br.break_type.includes('choch') ? 'CH' : 'BOS',
+        });
+      }
+
+      markers.sort((a, b) => (a.time as number) - (b.time as number));
+      candleRef.current?.setMarkers(markers);
+    }
+  }, [bars, structureEnabled]);
 
   useEffect(() => {
     if (!chartRef.current) return;

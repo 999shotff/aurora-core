@@ -6,6 +6,7 @@ import { Watchlist } from './components/Watchlist';
 import { PriceChart } from './components/PriceChart';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { IndicatorSelector } from './components/IndicatorSelector';
+import { MarketStructurePanel } from './components/MarketStructurePanel';
 import { LandingPage } from './pages/LandingPage';
 import { AssetExplorer } from './pages/AssetExplorer';
 import { ResearchLab } from './pages/ResearchLab';
@@ -31,6 +32,7 @@ function App() {
   const [enabledIndicators, setEnabledIndicators] = useState<Set<string>>(
     () => new Set(['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
   );
+  const [structureEnabled, setStructureEnabled] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true);
@@ -135,7 +137,7 @@ function App() {
             ) : (
               <>
                 <div style={styles.chartArea}>
-                  <PriceChart bars={bars} overlays={overlays} panels={[]} />
+                  <PriceChart bars={bars} overlays={overlays} panels={[]} structureEnabled={structureEnabled} />
                 </div>
                 <div style={styles.dataBar}>
                   {lastBar && (
@@ -150,6 +152,18 @@ function App() {
                   <span style={{ marginLeft: 'auto', color: '#8b949e', fontSize: 10 }}>
                     Research: NO_DEPLOYMENT_SIGNAL
                   </span>
+                  <button
+                    onClick={() => setStructureEnabled(p => !p)}
+                    style={{
+                      background: structureEnabled ? 'rgba(38,166,154,0.2)' : 'none',
+                      border: '1px solid #21262d',
+                      color: structureEnabled ? '#26a69a' : '#8b949e',
+                      padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
+                      fontSize: 10, fontWeight: 600,
+                    }}
+                  >
+                    STRUCTURE {structureEnabled ? 'ON' : 'OFF'}
+                  </button>
                 </div>
               </>
             )}
@@ -164,6 +178,7 @@ function App() {
             />
           </div>
           <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} />
+          <MarketStructurePanel bars={bars} enabled={structureEnabled} />
         </div>
       )}
       {page === 'explorer' && (
