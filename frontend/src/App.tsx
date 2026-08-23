@@ -7,6 +7,7 @@ import { PriceChart } from './components/PriceChart';
 import { AnalysisPanel } from './components/AnalysisPanel';
 import { IndicatorSelector } from './components/IndicatorSelector';
 import { MarketStructurePanel } from './components/MarketStructurePanel';
+import { MarketContextPanel } from './components/MarketContextPanel';
 import { LandingPage } from './pages/LandingPage';
 import { AssetExplorer } from './pages/AssetExplorer';
 import { ResearchLab } from './pages/ResearchLab';
@@ -36,6 +37,7 @@ function App() {
     () => new Set(['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
   );
   const [structureEnabled, setStructureEnabled] = useState(false);
+  const [contextEnabled, setContextEnabled] = useState(false);
   const barsRef = useRef<OHLCBar[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -208,6 +210,18 @@ function App() {
                   >
                     STRUCTURE {structureEnabled ? 'ON' : 'OFF'}
                   </button>
+                  <button
+                    onClick={() => setContextEnabled(p => !p)}
+                    style={{
+                      background: contextEnabled ? 'rgba(33,150,243,0.2)' : 'none',
+                      border: '1px solid #21262d',
+                      color: contextEnabled ? '#2196F3' : '#8b949e',
+                      padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
+                      fontSize: 10, fontWeight: 600,
+                    }}
+                  >
+                    CONTEXT {contextEnabled ? 'ON' : 'OFF'}
+                  </button>
                 </div>
               </>
             )}
@@ -224,6 +238,7 @@ function App() {
           </div>
           <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} />
           <MarketStructurePanel bars={bars} enabled={structureEnabled} />
+          <MarketContextPanel asset={selectedAsset} timeframe={selectedTimeframe} bars={bars} visible={contextEnabled} />
         </div>
       )}
       {page === 'explorer' && (

@@ -294,6 +294,105 @@ def get_available_timeframes(asset: str) -> dict:
 
 
 # ============================================================
+# Market Analysis (M25)
+# ============================================================
+
+
+@app.get("/market/{asset}/analysis")
+def get_market_analysis(
+    asset: str,
+    timeframe: str = Query(default="1d", pattern="^(1m|5m|15m|30m|1h|4h|1d|1w|1M)$"),
+    limit: int = Query(default=200, ge=30, le=5000),
+) -> dict:
+    """Deterministic market analysis engine.
+
+    Produces structured analytical context from real OHLCV data.
+    NO_DEPLOYMENT_SIGNAL. No predictions. No trading signals.
+    """
+    from aurora.features.market_context import analyze_market
+
+    provider = _get_provider()
+
+    # Fetch primary timeframe data
+    resp = provider.get_ohlc(asset, timeframe, limit)
+    if resp.source_status == "error":
+        _health.record_failure(resp.error.message if resp.error else "No data")
+        raise HTTPException(status_code=404, detail=resp.error.message if resp.error else "No data")
+    _health.record_success()
+
+    validation = normalize_and_validate(resp.candles, asset)
+    bars = [
+        {
+            "timestamp": c.timestamp,
+            "open": c.open,
+            "high": c.high,
+            "low": c.low,
+            "close": c.close,
+            "volume": c.volume,
+        }
+        for c in validation.candles
+    ]
+
+    # Fetch multi-timeframe data (best effort, non-blocking)
+    mtf_timeframes = {"1h", "4h", "1d"}
+    bars_by_tf: dict[str, list[dict]] = {}
+    for mtf_tf in mtf_timeframes:
+        if mtf_tf == timeframe:
+            bars_by_tf[mtf_tf] = bars
+            continue
+        try:
+            mtf_resp = provider.get_ohlc(asset, mtf_tf, min(limit, 200))
+            if mtf_resp.source_status != "error" and mtf_resp.candles:
+                mtf_validation = normalize_and_validate(mtf_resp.candles, asset)
+                bars_by_tf[mtf_tf] = [
+                    {
+                        "timestamp": c.timestamp,
+                        "open": c.open,
+                        "high": c.high,
+                        "low": c.low,
+                        "close": c.close,
+                        "volume": c.volume,
+                    }
+                    for c in mtf_validation.candles
+                ]
+        except Exception:  # noqa: BLE001, S110
+            pass  # Best effort — missing MTF data is acceptable
+
+    # Run analysis
+    context = analyze_market(
+        bars=bars,
+        asset=asset,
+        timeframe=timeframe,
+        provider=resp.provider_name,
+        stale=_health.is_stale,
+        bars_by_tf=bars_by_tf if bars_by_tf else None,
+    )
+
+    # Convert dataclass to dict for JSON serialization
+    from dataclasses import asdict
+
+    def _convert(obj: object) -> object:
+        if hasattr(obj, "value"):  # Enum
+            return obj.value
+        if hasattr(obj, "__dataclass_fields__"):  # dataclass
+            return {k: _convert(v) for k, v in asdict(obj).items()}
+        if isinstance(obj, list):
+            return [_convert(item) for item in obj]
+        if isinstance(obj, dict):
+            return {k: _convert(v) for k, v in obj.items()}
+        return obj
+
+    result = _convert(context)
+
+    # Add metadata
+    result["provider"] = resp.provider_name
+    result["is_demo"] = resp.is_demo
+    result["research_conclusion"] = "NO_DEPLOYMENT_SIGNAL"
+
+    return result
+
+
+# ============================================================
 # WebSocket
 # ============================================================
 
