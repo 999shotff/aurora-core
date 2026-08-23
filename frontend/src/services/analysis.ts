@@ -114,6 +114,79 @@ export interface DataQualityContextType {
   asset: string;
 }
 
+export type ConfluenceLevelType = 'strong_agreement' | 'moderate_agreement' | 'weak_agreement'
+  | 'neutral' | 'mixed' | 'moderate_disagreement' | 'strong_disagreement' | 'insufficient_data';
+
+export interface ConfluenceResult {
+  level: ConfluenceLevelType;
+  score: number;
+  bullish_aligned: number;
+  bearish_aligned: number;
+  conflicting: number;
+  missing: number;
+  evidence_summary: string[];
+}
+
+export type ScenarioTypeVal = 'continuation' | 'reversal' | 'range' | 'breakout' | 'breakdown' | 'insufficient_evidence';
+
+export interface ScenarioEvidence {
+  domain: string;
+  supports: boolean;
+  description: string;
+}
+
+export interface Scenario {
+  scenario_type: ScenarioTypeVal;
+  name: string;
+  supporting_evidence: ScenarioEvidence[];
+  conflicting_evidence: ScenarioEvidence[];
+  invalidating_conditions: string[];
+  confidence: number;
+  relevant_timeframe: string;
+  explanation: string;
+}
+
+export interface ScenarioResult {
+  scenarios: Scenario[];
+  primary_scenario: Scenario;
+  methodology_version: string;
+}
+
+export type ConflictSeverityType = 'low' | 'medium' | 'high' | 'critical';
+
+export interface EnhancedConflict {
+  conflict_type: string;
+  severity: ConflictSeverityType;
+  domain_a: string;
+  state_a: string;
+  domain_b: string;
+  state_b: string;
+  description: string;
+  evidence: string[];
+}
+
+export interface DataProvenanceResult {
+  provider: string;
+  asset: string;
+  timeframe: string;
+  retrieved_at: string;
+  data_timestamp: string | null;
+  freshness: string;
+  data_quality: string;
+  is_demo: boolean;
+  methodology_version: string;
+}
+
+export interface ResearchIntegrityResult {
+  no_deployment_signal: boolean;
+  no_predictions: boolean;
+  no_trading_signals: boolean;
+  deterministic: boolean;
+  no_future_data: boolean;
+  classification: string;
+  disclaimer: string;
+}
+
 export interface ExplanationSection {
   heading: string;
   content: string;
@@ -130,9 +203,15 @@ export interface MarketAnalysis {
   structure: StructureAnalysisContext;
   liquidity: LiquidityAnalysisContext;
   multi_timeframe: MultiTimeframeContextType;
-  conflicts: ConflictItem[];
+  conflicts: EnhancedConflict[];
   data_quality: DataQualityContextType;
   explanation: ExplanationSection[];
+  confluence: ConfluenceResult;
+  scenarios: ScenarioResult;
+  uncertainty: string[];
+  methodology_version: string;
+  provenance: DataProvenanceResult;
+  research_integrity: ResearchIntegrityResult;
   provider: string;
   is_demo: boolean;
   research_conclusion: string;
@@ -305,6 +384,38 @@ export function computeLocalAnalysis(
     conflicts: [],
     data_quality: dataQuality,
     explanation,
+    confluence: {
+      level: 'insufficient_data', score: 0, bullish_aligned: 0,
+      bearish_aligned: 0, conflicting: 0, missing: 0, evidence_summary: [],
+    },
+    scenarios: {
+      scenarios: [{
+        scenario_type: 'insufficient_evidence', name: 'Local Only',
+        supporting_evidence: [], conflicting_evidence: [],
+        invalidating_conditions: [], confidence: 0,
+        relevant_timeframe: timeframe, explanation: 'Backend unavailable — local analysis only',
+      }],
+      primary_scenario: {
+        scenario_type: 'insufficient_evidence', name: 'Local Only',
+        supporting_evidence: [], conflicting_evidence: [],
+        invalidating_conditions: [], confidence: 0,
+        relevant_timeframe: timeframe, explanation: 'Backend unavailable — local analysis only',
+      },
+      methodology_version: 'm26.0',
+    },
+    uncertainty: ['Backend unavailable — local analysis only'],
+    methodology_version: 'm26.0',
+    provenance: {
+      provider: 'local', asset, timeframe,
+      retrieved_at: new Date().toISOString(), data_timestamp: null,
+      freshness: 'unknown', data_quality: 'unknown', is_demo: true,
+      methodology_version: 'm26.0',
+    },
+    research_integrity: {
+      no_deployment_signal: true, no_predictions: true, no_trading_signals: true,
+      deterministic: true, no_future_data: true, classification: 'ANALYTICAL_RESEARCH',
+      disclaimer: 'Descriptive analytical research. No predictions. No trading signals.',
+    },
     provider: 'local',
     is_demo: true,
     research_conclusion: 'NO_DEPLOYMENT_SIGNAL',

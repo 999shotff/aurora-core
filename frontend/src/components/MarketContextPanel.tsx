@@ -8,9 +8,13 @@ import {
   StructureAnalysisContext,
   LiquidityAnalysisContext,
   MultiTimeframeContextType,
-  ConflictItem,
+  EnhancedConflict,
   DataQualityContextType,
   ExplanationSection,
+  ConfluenceResult,
+  ScenarioResult,
+  Scenario,
+  ResearchIntegrityResult,
   fetchMarketAnalysis,
   computeLocalAnalysis,
 } from '../services/analysis';
@@ -101,9 +105,12 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
       <StructureSection data={analysis.structure} />
       <LiquiditySection data={analysis.liquidity} />
       <MultiTimeframeSection data={analysis.multi_timeframe} />
+      <ConfluenceSection data={analysis.confluence} />
+      <ScenariosSection data={analysis.scenarios} />
       <ConflictSection data={analysis.conflicts} />
       <DataQualitySection data={analysis.data_quality} qualityColor={qualityColor} />
       <ExplanationSectionComp data={analysis.explanation} />
+      <ResearchIntegritySection data={analysis.research_integrity} />
     </div>
   );
 };
@@ -251,7 +258,69 @@ const MultiTimeframeSection: React.FC<{ data: MultiTimeframeContextType }> = ({ 
   );
 };
 
-const ConflictSection: React.FC<{ data: ConflictItem[] }> = ({ data }) => {
+const ConfluenceSection: React.FC<{ data: ConfluenceResult }> = ({ data }) => {
+  const color = data.level === 'strong_agreement' ? '#3fb950' :
+    data.level === 'moderate_agreement' ? '#3fb950' :
+    data.level === 'weak_agreement' ? '#d29922' :
+    data.level === 'strong_disagreement' ? '#f85149' :
+    data.level === 'moderate_disagreement' ? '#f85149' : '#8b949e';
+  return (
+    <Section title="CONFLUENCE">
+      <Row label="Level" value={data.level.toUpperCase()} color={color} />
+      <Row label="Score" value={data.score.toFixed(2)} />
+      <Row label="Bullish" value={String(data.bullish_aligned)} color="#3fb950" />
+      <Row label="Bearish" value={String(data.bearish_aligned)} color="#f85149" />
+      <Row label="Missing" value={String(data.missing)} />
+      {data.evidence_summary.length > 0 && (
+        <div style={styles.evidence}>
+          {data.evidence_summary.slice(0, 4).map((e, i) => (
+            <div key={i} style={styles.evidenceItem}>- {e}</div>
+          ))}
+        </div>
+      )}
+    </Section>
+  );
+};
+
+const ScenariosSection: React.FC<{ data: ScenarioResult }> = ({ data }) => {
+  const scenarioColor = (type: string) =>
+    type === 'continuation' ? '#3fb950' :
+    type === 'reversal' ? '#f85149' :
+    type === 'range' ? '#8b949e' :
+    type === 'breakout' ? '#d29922' :
+    type === 'breakdown' ? '#d29922' : '#8b949e';
+  return (
+    <Section title="SCENARIOS">
+      {data.scenarios.map((s, i) => (
+        <div key={i} style={styles.scenarioItem}>
+          <Row label={s.name} value={`${(s.confidence * 100).toFixed(0)}%`}
+               color={scenarioColor(s.scenario_type)} />
+          <div style={styles.scenarioDesc}>{s.explanation}</div>
+          {s.invalidating_conditions.length > 0 && (
+            <div style={styles.scenarioInvalidation}>
+              Invalidates: {s.invalidating_conditions.slice(0, 2).join('; ')}
+            </div>
+          )}
+        </div>
+      ))}
+    </Section>
+  );
+};
+
+const ResearchIntegritySection: React.FC<{ data: ResearchIntegrityResult }> = ({ data }) => (
+  <Section title="RESEARCH INTEGRITY">
+    <Row label="Classification" value={data.classification} color="#d29922" />
+    <Row label="No Predictions" value={data.no_predictions ? 'Yes' : 'No'} color={data.no_predictions ? '#3fb950' : '#f85149'} />
+    <Row label="No Trading Signals" value={data.no_trading_signals ? 'Yes' : 'No'} color={data.no_trading_signals ? '#3fb950' : '#f85149'} />
+    <Row label="Deterministic" value={data.deterministic ? 'Yes' : 'No'} color={data.deterministic ? '#3fb950' : '#f85149'} />
+    <Row label="No Future Data" value={data.no_future_data ? 'Yes' : 'No'} color={data.no_future_data ? '#3fb950' : '#f85149'} />
+    {data.disclaimer && (
+      <div style={styles.disclaimer}>{data.disclaimer}</div>
+    )}
+  </Section>
+);
+
+const ConflictSection: React.FC<{ data: EnhancedConflict[] }> = ({ data }) => {
   if (data.length === 0) {
     return (
       <Section title="CONFLICTS">
@@ -262,14 +331,21 @@ const ConflictSection: React.FC<{ data: ConflictItem[] }> = ({ data }) => {
   return (
     <Section title="CONFLICTS">
       <Row label="Count" value={String(data.length)} color="#d29922" />
-      {data.slice(0, 5).map((c, i) => (
-        <div key={i} style={styles.conflictItem}>
-          <span style={{ color: '#d29922' }}>{c.domain_a}</span>
-          {' vs '}
-          <span style={{ color: '#d29922' }}>{c.domain_b}</span>
-          <div style={styles.conflictDesc}>{c.description}</div>
-        </div>
-      ))}
+      {data.slice(0, 5).map((c, i) => {
+        const sevColor = c.severity === 'critical' ? '#f85149' :
+          c.severity === 'high' ? '#f85149' :
+          c.severity === 'medium' ? '#d29922' : '#8b949e';
+        return (
+          <div key={i} style={styles.conflictItem}>
+            <span style={{ color: sevColor }}>[{c.severity.toUpperCase()}]</span>
+            {' '}
+            <span style={{ color: '#d29922' }}>{c.domain_a}</span>
+            {' vs '}
+            <span style={{ color: '#d29922' }}>{c.domain_b}</span>
+            <div style={styles.conflictDesc}>{c.description}</div>
+          </div>
+        );
+      })}
     </Section>
   );
 };
@@ -334,4 +410,8 @@ const styles: Record<string, React.CSSProperties> = {
   conflictDesc: { fontSize: 10, color: '#d29922', marginTop: 2 },
   explanationSection: { marginBottom: 6 },
   explanationHeading: { fontSize: 11, fontWeight: 600, color: '#f0f6fc' },
+  scenarioItem: { padding: '4px 0', fontSize: 11, color: '#f0f6fc' },
+  scenarioDesc: { fontSize: 10, color: '#8b949e', marginTop: 2 },
+  scenarioInvalidation: { fontSize: 9, color: '#d29922', marginTop: 2, fontStyle: 'italic' },
+  disclaimer: { fontSize: 9, color: '#8b949e', marginTop: 6, lineHeight: 1.3, fontStyle: 'italic' },
 };

@@ -308,7 +308,9 @@ def get_market_analysis(
 
     Produces structured analytical context from real OHLCV data.
     NO_DEPLOYMENT_SIGNAL. No predictions. No trading signals.
+    Includes M26 evidence aggregation, confluence scoring, and scenario analysis.
     """
+    from aurora.features.evidence import analyze_market_full
     from aurora.features.market_context import analyze_market
 
     provider = _get_provider()
@@ -368,6 +370,9 @@ def get_market_analysis(
         bars_by_tf=bars_by_tf if bars_by_tf else None,
     )
 
+    # Run M26 evidence confluence and scenario analysis
+    analysis = analyze_market_full(context)
+
     # Convert dataclass to dict for JSON serialization
     from dataclasses import asdict
 
@@ -382,7 +387,7 @@ def get_market_analysis(
             return {k: _convert(v) for k, v in obj.items()}
         return obj
 
-    result = _convert(context)
+    result = _convert(analysis)
 
     # Add metadata
     result["provider"] = resp.provider_name
