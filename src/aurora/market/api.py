@@ -108,7 +108,7 @@ def _get_cors_origins() -> list[str]:
 app = FastAPI(
     title="AURORA CORE Market Data API",
     description="Market data infrastructure. No predictions. NO_DEPLOYMENT_SIGNAL.",
-    version="0.2.0",
+    version="0.3.0",
 )
 
 app.add_middleware(
