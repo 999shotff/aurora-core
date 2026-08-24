@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import { ASSETS, Asset, AssetCategory } from '../types';
+import type { Asset, AssetCategory } from '../types';
+import { ASSETS } from '../types';
 import { API_BASE } from '../services/data';
 
 interface Quote {

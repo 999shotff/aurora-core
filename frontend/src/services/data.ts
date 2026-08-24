@@ -1,4 +1,4 @@
-import { OHLCBar, IndicatorSeries, Asset, Timeframe, AnalysisMetrics, IndicatorParamDef, IndicatorDisplayType } from '../types';
+import type { OHLCBar, IndicatorSeries, Asset, Timeframe, AnalysisMetrics, IndicatorParamDef, IndicatorDisplayType } from '../types';
 
 export const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
 
@@ -139,7 +139,7 @@ export async function getDataSourceInfo(): Promise<{ isDemo: boolean; provider: 
 
 export function generateMockOHLCV(
   symbol: string,
-  timeframe: Timeframe,
+  _timeframe: Timeframe,
   nBars: number = 200,
   seed: number = 42
 ): OHLCBar[] {
@@ -252,11 +252,6 @@ export function sanitizeBars(rawBars: { time: string; open: number; high: number
   }));
 }
 
-function safeNum(v: unknown): number | null {
-  if (typeof v === 'number' && isFinite(v)) return v;
-  return null;
-}
-
 function validateArray(arr: number[], name: string): void {
   if (!Array.isArray(arr)) throw new Error(`${name} must be an array`);
 }
@@ -327,7 +322,6 @@ export function computeMACD(closes: number[], fast = 12, slow = 26, signal = 9):
   validateArray(closes, 'closes');
   const f = validatePeriod(fast, 'fast');
   const s = validatePeriod(slow, 'slow');
-  const sig = validatePeriod(signal, 'signal');
   if (closes.length === 0) return { macdLine: [], signalLine: [], histogram: [] };
   const emaFast = computeEMA(closes, f);
   const emaSlow = computeEMA(closes, s);
@@ -840,7 +834,6 @@ export function getAnalysisMetrics(bars: OHLCBar[]): AnalysisMetrics {
   const highs = bars.map(b => b.high);
   const lows = bars.map(b => b.low);
   const last = closes[closes.length - 1];
-  const prev = closes[closes.length - 2] ?? last;
 
   const rsi = computeRSI(closes, 14);
   const macd = computeMACD(closes);

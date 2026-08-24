@@ -126,21 +126,6 @@ const INDICATOR_DESCRIPTIONS: Record<string, string> = {
   atr: 'Average True Range — 14-period volatility',
 };
 
-function formatTimestamp(iso: string): string {
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    });
-  } catch {
-    return iso;
-  }
-}
-
 function timeSince(iso: string): string {
   try {
     const diff = Date.now() - new Date(iso).getTime();

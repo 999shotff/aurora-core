@@ -1,5 +1,6 @@
 import React from 'react';
-import { Asset, Timeframe, TIMEFRAMES, ASSETS } from '../types';
+import type { Timeframe } from '../types';
+import { TIMEFRAMES, ASSETS } from '../types';
 
 interface Props {
   selectedAsset: string;

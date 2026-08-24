@@ -1,5 +1,5 @@
 import React from 'react';
-import { AnalysisMetrics, IndicatorSeries } from '../types';
+import type { AnalysisMetrics, IndicatorSeries } from '../types';
 
 interface Props {
   metrics: AnalysisMetrics | null;

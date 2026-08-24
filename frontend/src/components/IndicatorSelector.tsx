@@ -1,5 +1,6 @@
 import React from 'react';
-import { INDICATOR_GROUPS, IndicatorGroup, IndicatorDef } from '../services/data';
+import { INDICATOR_GROUPS } from '../services/data';
+import type { IndicatorGroup, IndicatorDef } from '../services/data';
 
 interface Props {
   enabled: Set<string>;

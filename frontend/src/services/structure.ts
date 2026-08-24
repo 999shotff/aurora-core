@@ -211,8 +211,8 @@ export function detectStructureBreaks(
   lows: number[],
   closes: number[],
   swings: SwingPoint[],
-  left: number = 3,
-  right: number = 3,
+  _left: number = 3,
+  _right: number = 3,
 ): StructureBreak[] {
   validateLengths(highs, lows, closes);
   const n = closes.length;

@@ -4,7 +4,7 @@
  * Falls back to local computation if backend is unavailable.
  */
 
-import { OHLCBar } from '../types';
+import type { OHLCBar } from '../types';
 
 // ============================================================
 // Types

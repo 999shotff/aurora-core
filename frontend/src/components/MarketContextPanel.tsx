@@ -1,5 +1,9 @@
-import React, { useMemo } from 'react';
+import React from 'react';
 import {
+  fetchMarketAnalysis,
+  computeLocalAnalysis,
+} from '../services/analysis';
+import type {
   MarketAnalysis,
   TrendContext,
   MomentumContext,
@@ -13,12 +17,9 @@ import {
   ExplanationSection,
   ConfluenceResult,
   ScenarioResult,
-  Scenario,
   ResearchIntegrityResult,
-  fetchMarketAnalysis,
-  computeLocalAnalysis,
 } from '../services/analysis';
-import { OHLCBar } from '../types';
+import type { OHLCBar } from '../types';
 
 interface Props {
   asset: string;

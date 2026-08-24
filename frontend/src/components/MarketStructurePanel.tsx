@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
-import { OHLCBar } from '../types';
-import { analyzeStructure, MarketRegime, SwingPoint, StructureBreak, SRLevel } from '../services/structure';
+import type { OHLCBar } from '../types';
+import { analyzeStructure } from '../services/structure';
+import type { MarketRegime, StructureBreak } from '../services/structure';
 
 interface Props {
   bars: OHLCBar[];

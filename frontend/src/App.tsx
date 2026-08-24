@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from './types';
+import type { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from './types';
 import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo } from './services/data';
 import { TopBar } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
@@ -96,7 +96,7 @@ function App() {
 
   useEffect(() => {
     getDataSourceInfo().then(info => {
-      setDataSource(info);
+      setDataSource({ ...info, stale: false });
       setBackendDown(info.provider === 'mock (no backend)');
     });
   }, []);
@@ -132,7 +132,7 @@ function App() {
   if (page === 'landing') {
     return (
       <div style={styles.app}>
-        <LandingPage onNavigate={setPage} />
+        <LandingPage onNavigate={setPage as (page: string) => void} />
       </div>
     );
   }

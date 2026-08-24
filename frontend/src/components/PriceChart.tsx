@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useCallback } from 'react';
-import { createChart, IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData, ColorType, Time } from 'lightweight-charts';
-import { OHLCBar, IndicatorSeries } from '../types';
+import { createChart, ColorType } from 'lightweight-charts';
+import type { IChartApi, ISeriesApi, CandlestickData, HistogramData, LineData, Time } from 'lightweight-charts';
+import type { OHLCBar, IndicatorSeries } from '../types';
 import { detectSwingPoints, detectStructureBreaks } from '../services/structure';
 
 interface Props {
@@ -30,16 +31,7 @@ const OVERLAY_COLORS: Record<string, string> = {
   pivot_s1: '#4CAF50', pivot_s2: '#4CAF50', pivot_s3: '#4CAF50',
 };
 
-const PANEL_COLORS: Record<string, string> = {
-  rsi_14: '#E91E63',
-  macd_line: '#2196F3', macd_signal: '#FF9800', macd_histogram: '#26a69a',
-  stoch_k: '#E91E63', stoch_d: '#2196F3',
-  cci_20: '#9C27B0', roc_12: '#00BCD4', williamsr_14: '#FF5722',
-  adx_line: '#FFD700', adx_plus_di: '#26a69a', adx_minus_di: '#f85149',
-  atr_14: '#FF9800', obv: '#2196F3', mfi_14: '#9C27B0',
-};
-
-export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureEnabled = false, isIntraday = false }) => {
+export const PriceChart: React.FC<Props> = ({ bars, overlays, panels: _panels, structureEnabled = false, isIntraday = false }) => {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const candleRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
@@ -160,7 +152,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
           time: barTimeToChartTime(bar.time),
           position: br.break_type.includes('bull') ? 'belowBar' as const : 'aboveBar' as const,
           color: br.break_type.includes('choch') ? '#E91E63' : '#26a69a',
-          shape: 'circle' as const,
+          shape: 'arrowUp' as const,
           text: br.break_type.includes('choch') ? 'CH' : 'BOS',
         });
       }

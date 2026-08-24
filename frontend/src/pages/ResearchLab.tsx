@@ -782,8 +782,6 @@ function MilestoneCard({ milestone }: { milestone: MilestoneResult }) {
 const ResearchLab: React.FC = () => {
   const [activePhase, setActivePhase] = useState<PhaseId | 'all'>('all');
 
-  const totalExperiments = 114;
-  const significantResults = 0;
   const bestAccuracyDelta = '+2.1%';
   const bestSharpe = 'Negative (all)';
 

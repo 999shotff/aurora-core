@@ -1,5 +1,5 @@
 import React, { useMemo } from 'react';
-import { OHLCBar } from '../types';
+import type { OHLCBar } from '../types';
 import {
   computeSMA,
   computeEMA,
