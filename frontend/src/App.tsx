@@ -15,15 +15,18 @@ import { AssetExplorer } from './pages/AssetExplorer';
 import { ResearchLab } from './pages/ResearchLab';
 import { AnalysisWorkspace } from './pages/AnalysisWorkspace';
 import { SettingsPage } from './pages/SettingsPage';
+import { isIntradayTimeframe } from './lib/timeframes';
+import { saveIndicatorState, loadIndicatorState } from './lib/persistence';
 
 type Page = 'landing' | 'terminal' | 'explorer' | 'research' | 'analysis' | 'settings';
 
 const REST_FALLBACK_INTERVAL = 60_000;
 
 function App() {
+  const initial = loadIndicatorState();
   const [page, setPage] = useState<Page>('landing');
-  const [selectedAsset, setSelectedAsset] = useState('BTC-USD');
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('1D');
+  const [selectedAsset, setSelectedAsset] = useState(initial?.selectedAsset ?? 'BTC-USD');
+  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>((initial?.selectedTimeframe as Timeframe) ?? '1D');
   const [bars, setBars] = useState<OHLCBar[]>([]);
   const [overlays, setOverlays] = useState<IndicatorSeries[]>([]);
   const [metrics, setMetrics] = useState<AnalysisMetrics | null>(null);
@@ -36,11 +39,11 @@ function App() {
   const [backendDown, setBackendDown] = useState(false);
   const [emptyData, setEmptyData] = useState(false);
   const [enabledIndicators, setEnabledIndicators] = useState<Set<string>>(
-    () => new Set(['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
+    () => new Set(initial?.enabledIndicators ?? ['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
   );
-  const [indicatorParams, setIndicatorParams] = useState<Record<string, Record<string, number>>>({});
-  const [structureEnabled, setStructureEnabled] = useState(false);
-  const [contextEnabled, setContextEnabled] = useState(false);
+  const [indicatorParams, setIndicatorParams] = useState<Record<string, Record<string, number>>>(initial?.indicatorParams ?? {});
+  const [structureEnabled, setStructureEnabled] = useState(initial?.structureEnabled ?? false);
+  const [contextEnabled, setContextEnabled] = useState(initial?.contextEnabled ?? false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('offline');
   const barsRef = useRef<OHLCBar[]>([]);
   const abortRef = useRef<AbortController | null>(null);
@@ -159,6 +162,17 @@ function App() {
     });
   }, []);
 
+  useEffect(() => {
+    saveIndicatorState({
+      enabledIndicators,
+      indicatorParams,
+      selectedTimeframe,
+      selectedAsset,
+      structureEnabled,
+      contextEnabled,
+    });
+  }, [enabledIndicators, indicatorParams, selectedTimeframe, selectedAsset, structureEnabled, contextEnabled]);
+
   const handleDataModeChange = (mode: 'demo' | 'live') => {
     setDataMode(mode);
     localStorage.setItem('aurora_data_mode', mode);
@@ -195,7 +209,7 @@ function App() {
   }, []);
 
   const lastBar = bars[bars.length - 1];
-  const isIntraday = selectedTimeframe !== '1D' && selectedTimeframe !== '1W';
+  const isIntraday = isIntradayTimeframe(selectedTimeframe);
   const oscillatorIds = new Set(
     INDICATOR_GROUPS.filter(g => !g.overlay).flatMap(g => g.subSeries)
   );
