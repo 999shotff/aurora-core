@@ -29,6 +29,8 @@ const OVERLAY_COLORS: Record<string, string> = {
   vwap: '#E91E63',
   pivot_pp: '#FFD700', pivot_r1: '#FF6B6B', pivot_r2: '#FF6B6B', pivot_r3: '#FF6B6B',
   pivot_s1: '#4CAF50', pivot_s2: '#4CAF50', pivot_s3: '#4CAF50',
+  fib_0: '#00BCD4', 'fib_23.6': '#FF9800', 'fib_38.2': '#E91E63',
+  'fib_50': '#FFFFFF', 'fib_61.8': '#9C27B0', 'fib_78.6': '#2196F3', 'fib_100': '#4CAF50',
 };
 
 const PANEL_GROUP_COLORS: Record<string, string[]> = {
@@ -128,8 +130,10 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
   const panelChartsRef = useRef<IChartApi[]>([]);
   const panelContainerRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const panelSeriesRefs = useRef<Map<string, ISeriesApi<'Line' | 'Histogram'>[]>>(new Map());
+  const mainSeriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
 
   const syncCallbacksRef = useRef<Array<{ chart: IChartApi; cb: (range: unknown) => void }>>([]);
+  const crosshairCallbacksRef = useRef<Array<{ chart: IChartApi; cb: (param: unknown) => void }>>([]);
   const isSyncingRef = useRef(false);
 
   const panelGroups = useMemo(() => groupPanelSeries(panels), [panels]);
@@ -184,6 +188,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
 
     mainChartRef.current = chart;
     candleRef.current = candleSeries;
+    mainSeriesRef.current = candleSeries;
     volumeRef.current = volumeSeries;
 
     const resizeObserver = new ResizeObserver(entries => {
@@ -449,6 +454,48 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
       syncCallbacksRef.current.push({ chart: panelChart, cb });
     }
 
+    const allSeriesForCrosshair: Array<{ chart: IChartApi; series: ISeriesApi<'Candlestick' | 'Line' | 'Histogram'> }> = [];
+    if (mainSeriesRef.current) {
+      allSeriesForCrosshair.push({ chart: mainChart, series: mainSeriesRef.current });
+    }
+    for (let i = 0; i < allCharts.length; i++) {
+      const group = panelGroups[i];
+      if (!group) continue;
+      const seriesArr = panelSeriesRefs.current.get(group.groupId);
+      if (seriesArr && seriesArr.length > 0 && allCharts[i]) {
+        allSeriesForCrosshair.push({ chart: allCharts[i], series: seriesArr[0] });
+      }
+    }
+
+    const syncCrosshair = (sourceChart: IChartApi, time: Time | null) => {
+      if (isSyncingRef.current) return;
+      if (time === null) return;
+      isSyncingRef.current = true;
+      for (const { chart, series } of allSeriesForCrosshair) {
+        if (chart === sourceChart) continue;
+        try {
+          chart.setCrosshairPosition(NaN, time, series);
+        } catch { /* pane may not have data at this time */ }
+      }
+      isSyncingRef.current = false;
+    };
+
+    const mainCrosshairCb = (param: unknown) => {
+      const p = param as { time?: Time } | undefined;
+      syncCrosshair(mainChart, p?.time ?? null);
+    };
+    mainChart.subscribeCrosshairMove(mainCrosshairCb);
+    crosshairCallbacksRef.current.push({ chart: mainChart, cb: mainCrosshairCb });
+
+    for (const panelChart of allCharts) {
+      const cb = (param: unknown) => {
+        const p = param as { time?: Time } | undefined;
+        syncCrosshair(panelChart, p?.time ?? null);
+      };
+      panelChart.subscribeCrosshairMove(cb);
+      crosshairCallbacksRef.current.push({ chart: panelChart, cb });
+    }
+
     const resizeObserver = new ResizeObserver(entries => {
       for (const entry of entries) {
         const w = entry.contentRect.width;
@@ -467,6 +514,10 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
         try { chart.timeScale().unsubscribeVisibleLogicalRangeChange(cb); } catch { /* ok */ }
       }
       syncCallbacksRef.current = [];
+      for (const { chart, cb } of crosshairCallbacksRef.current) {
+        try { chart.unsubscribeCrosshairMove(cb); } catch { /* ok */ }
+      }
+      crosshairCallbacksRef.current = [];
 
       for (const [_id, container] of panelContainerRefs.current.entries()) {
         try { container.remove(); } catch { /* removed */ }

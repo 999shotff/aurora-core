@@ -129,6 +129,18 @@ export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale,
         </Section>
       )}
 
+      {hasOverlay('fib_0') && (
+        <Section title="Fibonacci">
+          <Row label="High" value={fmt(getOverlayValue('fib_0'))} color="#00BCD4" />
+          <Row label="Low" value={fmt(getOverlayValue('fib_100'))} color="#4CAF50" />
+          <Row label="23.6%" value={fmt(getOverlayValue('fib_23.6'))} color="#FF9800" />
+          <Row label="38.2%" value={fmt(getOverlayValue('fib_38.2'))} color="#E91E63" />
+          <Row label="50.0%" value={fmt(getOverlayValue('fib_50'))} color="#FFFFFF" />
+          <Row label="61.8%" value={fmt(getOverlayValue('fib_61.8'))} color="#9C27B0" />
+          <Row label="78.6%" value={fmt(getOverlayValue('fib_78.6'))} color="#2196F3" />
+        </Section>
+      )}
+
       {!hasOverlay('sma_20') && !hasOverlay('ema_12') && !hasOverlay('rsi_14') && !hasOverlay('macd_line') && (
         <Section title="Technical Indicators">
           <Row label="RSI (14)" value={fmt(metrics.rsi)}

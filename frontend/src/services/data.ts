@@ -787,6 +787,24 @@ export function computeAllIndicators(
     addSeries('pivot_s2', piv.s2);
     addSeries('pivot_s3', piv.s3);
   }
+  if (on('fib')) {
+    const fibLevels = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+    const levelNames = ['0', '23.6', '38.2', '50', '61.8', '78.6', '100'];
+    const fibHigh = Math.max(...highs);
+    const fibLow = Math.min(...lows);
+    const fibValues = computeFibonacci(fibHigh, fibLow, fibLevels);
+    const fibPoint = { time: times[times.length - 1], value: fibHigh };
+    for (let i = 0; i < fibLevels.length; i++) {
+      const level = fibLevels[i];
+      const label = levelNames[i];
+      const price = fibValues[level];
+      series.push({
+        name: `fib_${label}`,
+        parameters: { level, price, high: fibHigh, low: fibLow },
+        points: [{ time: fibPoint.time, value: price }],
+      });
+    }
+  }
 
   return series;
 }
@@ -882,7 +900,7 @@ export const INDICATOR_GROUPS: IndicatorDef[] = [
     subSeries: ['pivot_pp', 'pivot_r1', 'pivot_r2', 'pivot_r3', 'pivot_s1', 'pivot_s2', 'pivot_s3'] },
   { id: 'fib', name: 'Fibonacci', group: 'LEVELS', overlay: true, displayType: 'overlay', minDataLength: 2,
     params: [],
-    subSeries: [] },
+    subSeries: ['fib_0', 'fib_23.6', 'fib_38.2', 'fib_50', 'fib_61.8', 'fib_78.6', 'fib_100'] },
 ];
 
 export const INDICATOR_CONFIGS: IndicatorConfig[] = [
@@ -981,6 +999,11 @@ export const INDICATOR_CONFIGS: IndicatorConfig[] = [
     params: [],
     subSeries: ['pivot_pp', 'pivot_r1', 'pivot_r2', 'pivot_r3', 'pivot_s1', 'pivot_s2', 'pivot_s3'],
   },
+  {
+    id: 'fib', name: 'Fibonacci', group: 'LEVELS', overlay: true, displayType: 'overlay',
+    params: [],
+    subSeries: ['fib_0', 'fib_23.6', 'fib_38.2', 'fib_50', 'fib_61.8', 'fib_78.6', 'fib_100'],
+  },
 ];
 
 export function getAnalysisMetrics(bars: OHLCBar[]): AnalysisMetrics {
@@ -1028,6 +1051,16 @@ export function getAnalysisMetrics(bars: OHLCBar[]): AnalysisMetrics {
 
 export function getAssetForSymbol(symbol: string): Asset | undefined {
   return ASSETS_IMPORT.find(a => a.symbol === symbol);
+}
+
+export function getFibonacciValues(
+  bars: OHLCBar[]
+): { high: number; low: number; levels: Record<number, number> } | null {
+  if (bars.length < 2) return null;
+  const high = Math.max(...bars.map(b => b.high));
+  const low = Math.min(...bars.map(b => b.low));
+  if (high === low) return null;
+  return { high, low, levels: computeFibonacci(high, low) };
 }
 
 const ASSETS_IMPORT = [

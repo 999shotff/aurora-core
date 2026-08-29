@@ -1,13 +1,17 @@
 import React from 'react';
 import { INDICATOR_GROUPS } from '../services/data';
 import type { IndicatorGroup, IndicatorDef } from '../services/data';
+import { IndicatorParameterEditor } from './IndicatorParameterEditor';
 
 interface Props {
   enabled: Set<string>;
   onToggle: (id: string) => void;
+  indicatorParams: Record<string, Record<string, number>>;
+  onParamUpdate: (indicatorId: string, paramId: string, value: number) => void;
+  onParamReset: (indicatorId: string) => void;
 }
 
-export const IndicatorSelector: React.FC<Props> = ({ enabled, onToggle }) => {
+export const IndicatorSelector: React.FC<Props> = ({ enabled, onToggle, indicatorParams, onParamUpdate, onParamReset }) => {
   const groups: IndicatorGroup[] = ['TREND', 'MOMENTUM', 'VOLATILITY', 'VOLUME', 'LEVELS'];
 
   return (
@@ -27,6 +31,11 @@ export const IndicatorSelector: React.FC<Props> = ({ enabled, onToggle }) => {
           </div>
         );
       })}
+      <IndicatorParameterEditor
+        indicatorParams={indicatorParams}
+        onUpdate={onParamUpdate}
+        onReset={onParamReset}
+      />
     </div>
   );
 };

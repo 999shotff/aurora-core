@@ -32,6 +32,8 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
   const [analysis, setAnalysis] = React.useState<MarketAnalysis | null>(null);
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
+  const [analysisTimestamp, setAnalysisTimestamp] = React.useState<number>(0);
+  const [_dataTimestamp, setDataTimestamp] = React.useState<string | null>(null);
 
   const barsKey = React.useMemo(
     () => bars.length > 0 ? `${bars.length}:${bars[bars.length - 1].time}` : 'empty',
@@ -48,15 +50,21 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
       if (cancelled) return;
       if (data) {
         setAnalysis(data);
+        setAnalysisTimestamp(Date.now());
+        setDataTimestamp(data.provenance?.data_timestamp ?? null);
       } else {
         const local = computeLocalAnalysis(bars, asset, timeframe);
         setAnalysis(local);
+        setAnalysisTimestamp(Date.now());
+        setDataTimestamp(bars[bars.length - 1]?.time ?? null);
       }
       setLoading(false);
     }).catch(() => {
       if (cancelled) return;
       const local = computeLocalAnalysis(bars, asset, timeframe);
       setAnalysis(local);
+      setAnalysisTimestamp(Date.now());
+      setDataTimestamp(bars[bars.length - 1]?.time ?? null);
       setLoading(false);
     });
 
@@ -95,12 +103,18 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
   const qualityColor = analysis.data_quality.quality === 'good' ? '#26a69a' :
     analysis.data_quality.quality === 'stale' ? '#d29922' : '#f85149';
 
+  const freshnessMs = Date.now() - analysisTimestamp;
+  const freshnessLabel = freshnessMs < 5000 ? 'FRESH' : freshnessMs < 30000 ? `${Math.floor(freshnessMs / 1000)}s ago` : 'STALE';
+  const freshnessColor = freshnessMs < 5000 ? '#26a69a' : freshnessMs < 30000 ? '#d29922' : '#f85149';
+
   return (
     <div style={styles.container}>
       <Header
         title="Market Context"
         badge={analysis.provider === 'local' ? 'LOCAL' : analysis.is_demo ? 'DEMO' : 'LIVE'}
         badgeColor={analysis.provider === 'local' ? '#8b949e' : analysis.is_demo ? '#f0883e' : '#26a69a'}
+        freshness={freshnessLabel}
+        freshnessColor={freshnessColor}
       />
 
       <TrendSection data={analysis.trend} />
@@ -124,10 +138,15 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
 // Sub-components
 // ============================================================
 
-const Header: React.FC<{ title: string; badge: string; badgeColor: string }> = ({ title, badge, badgeColor }) => (
+const Header: React.FC<{ title: string; badge: string; badgeColor: string; freshness?: string; freshnessColor?: string }> = ({ title, badge, badgeColor, freshness, freshnessColor }) => (
   <div style={styles.header}>
     <span style={styles.title}>{title}</span>
-    <span style={{ ...styles.badge, background: badgeColor }}>{badge}</span>
+    <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+      {freshness && (
+        <span style={{ ...styles.badge, background: freshnessColor ?? '#8b949e', fontSize: 8 }}>{freshness}</span>
+      )}
+      <span style={{ ...styles.badge, background: badgeColor }}>{badge}</span>
+    </div>
   </div>
 );
 

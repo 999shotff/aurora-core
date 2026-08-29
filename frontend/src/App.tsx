@@ -38,6 +38,7 @@ function App() {
   const [enabledIndicators, setEnabledIndicators] = useState<Set<string>>(
     () => new Set(['sma', 'ema', 'rsi', 'macd', 'bb', 'atr'])
   );
+  const [indicatorParams, setIndicatorParams] = useState<Record<string, Record<string, number>>>({});
   const [structureEnabled, setStructureEnabled] = useState(false);
   const [contextEnabled, setContextEnabled] = useState(false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('offline');
@@ -65,7 +66,7 @@ function App() {
       } else {
         barsRef.current = result.bars;
         setBars(result.bars);
-        setOverlays(computeAllIndicators(result.bars, enabledIndicators));
+        setOverlays(computeAllIndicators(result.bars, enabledIndicators, indicatorParams));
         setMetrics(getAnalysisMetrics(result.bars));
         setDataSource({ isDemo: result.isDemo, provider: result.provider, stale: result.stale });
       }
@@ -80,7 +81,7 @@ function App() {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-  }, [selectedAsset, selectedTimeframe, enabledIndicators]);
+  }, [selectedAsset, selectedTimeframe, enabledIndicators, indicatorParams]);
 
   useEffect(() => {
     const stream = new MarketStreamService({
@@ -96,7 +97,7 @@ function App() {
         const mappedBars = initialBars.map(b => ({ ...b, time: (b as unknown as { timestamp: string }).timestamp ?? b.time }));
         barsRef.current = mappedBars;
         setBars(mappedBars);
-        setOverlays(computeAllIndicators(mappedBars, enabledIndicators));
+        setOverlays(computeAllIndicators(mappedBars, enabledIndicators, indicatorParams));
         setMetrics(getAnalysisMetrics(mappedBars));
         setDataSource({ isDemo, provider, stale: false });
         setLoading(false);
@@ -115,7 +116,7 @@ function App() {
             next.push(mappedBar);
           }
           barsRef.current = next;
-          setOverlays(computeAllIndicators(next, enabledIndicators));
+          setOverlays(computeAllIndicators(next, enabledIndicators, indicatorParams));
           setMetrics(getAnalysisMetrics(next));
           return next;
         });
@@ -147,9 +148,9 @@ function App() {
 
   useEffect(() => {
     if (barsRef.current.length > 0) {
-      setOverlays(computeAllIndicators(barsRef.current, enabledIndicators));
+      setOverlays(computeAllIndicators(barsRef.current, enabledIndicators, indicatorParams));
     }
-  }, [enabledIndicators]);
+  }, [enabledIndicators, indicatorParams]);
 
   useEffect(() => {
     getDataSourceInfo().then(info => {
@@ -177,6 +178,21 @@ function App() {
       return next;
     });
   };
+
+  const handleParamUpdate = useCallback((indicatorId: string, paramId: string, value: number) => {
+    setIndicatorParams(prev => ({
+      ...prev,
+      [indicatorId]: { ...(prev[indicatorId] ?? {}), [paramId]: value },
+    }));
+  }, []);
+
+  const handleParamReset = useCallback((indicatorId: string) => {
+    setIndicatorParams(prev => {
+      const next = { ...prev };
+      delete next[indicatorId];
+      return next;
+    });
+  }, []);
 
   const lastBar = bars[bars.length - 1];
   const isIntraday = selectedTimeframe !== '1D' && selectedTimeframe !== '1W';
@@ -292,7 +308,7 @@ function App() {
               activeOverlays={overlays}
             />
           </div>
-          <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} />
+          <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} indicatorParams={indicatorParams} onParamUpdate={handleParamUpdate} onParamReset={handleParamReset} />
           <MarketStructurePanel bars={bars} enabled={structureEnabled} />
           <MarketContextPanel asset={selectedAsset} timeframe={selectedTimeframe} bars={bars} visible={contextEnabled} />
         </div>
