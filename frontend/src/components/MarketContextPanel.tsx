@@ -33,6 +33,11 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
+  const barsKey = React.useMemo(
+    () => bars.length > 0 ? `${bars.length}:${bars[bars.length - 1].time}` : 'empty',
+    [bars]
+  );
+
   React.useEffect(() => {
     if (!visible) return;
     let cancelled = false;
@@ -44,7 +49,6 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
       if (data) {
         setAnalysis(data);
       } else {
-        // Fallback to local
         const local = computeLocalAnalysis(bars, asset, timeframe);
         setAnalysis(local);
       }
@@ -57,7 +61,7 @@ export const MarketContextPanel: React.FC<Props> = ({ asset, timeframe, bars, vi
     });
 
     return () => { cancelled = true; };
-  }, [asset, timeframe, bars, visible]);
+  }, [asset, timeframe, barsKey, visible]);
 
   if (!visible) return null;
 

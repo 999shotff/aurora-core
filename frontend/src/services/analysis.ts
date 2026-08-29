@@ -5,6 +5,7 @@
  */
 
 import type { OHLCBar } from '../types';
+import { API_BASE } from './config';
 
 // ============================================================
 // Types
@@ -234,8 +235,6 @@ export async function fetchMarketAnalysis(
   if (cached && Date.now() - cached.time < ANALYSIS_CACHE_TTL) {
     return cached.data;
   }
-
-  const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
 
   try {
     const resp = await fetch(

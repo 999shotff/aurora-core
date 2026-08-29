@@ -13,7 +13,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import FastAPI, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, HTTPException, Query
 from fastapi.middleware.cors import CORSMiddleware
 
 from aurora.market.cache import BoundedCache
@@ -398,62 +398,3 @@ def get_market_analysis(
     result["research_conclusion"] = "NO_DEPLOYMENT_SIGNAL"
 
     return result
-
-
-# ============================================================
-# WebSocket
-# ============================================================
-
-class ConnectionManager:
-    """WebSocket connection manager."""
-
-    def __init__(self) -> None:
-        self.active: dict[str, list[WebSocket]] = {}
-
-    async def connect(self, ws: WebSocket, channel: str) -> None:
-        await ws.accept()
-        if channel not in self.active:
-            self.active[channel] = []
-        self.active[channel].append(ws)
-
-    def disconnect(self, ws: WebSocket, channel: str) -> None:
-        if channel in self.active:
-            self.active[channel] = [w for w in self.active[channel] if w != ws]
-
-    async def broadcast(self, channel: str, data: dict) -> None:
-        if channel in self.active:
-            for ws in self.active[channel]:
-                try:
-                    await ws.send_json(data)
-                except Exception:  # noqa: BLE001, S110
-                    pass
-
-
-_manager = ConnectionManager()
-
-
-@app.websocket("/ws/market/{asset}")
-async def websocket_market(ws: WebSocket, asset: str) -> None:
-    await _manager.connect(ws, f"market:{asset}")
-    provider = _get_provider()
-    try:
-        while True:
-            resp = provider.get_ohlc(asset, "1d", 1)
-            if resp.candles:
-                await ws.send_json({
-                    "channel": "ohlc",
-                    "symbol": asset,
-                    "data": {
-                        "timestamp": resp.candles[0].timestamp,
-                        "open": resp.candles[0].open,
-                        "high": resp.candles[0].high,
-                        "low": resp.candles[0].low,
-                        "close": resp.candles[0].close,
-                        "volume": resp.candles[0].volume,
-                    },
-                    "provider": resp.provider_name,
-                    "is_demo": resp.is_demo,
-                })
-            await ws.receive_text()
-    except WebSocketDisconnect:
-        _manager.disconnect(ws, f"market:{asset}")

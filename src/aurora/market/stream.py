@@ -144,7 +144,7 @@ class StreamManager:
                 await self._cleanup_stale_clients()
             except asyncio.CancelledError:
                 break
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("Error in update loop")
                 await asyncio.sleep(5)
 
@@ -188,7 +188,7 @@ class StreamManager:
                 }
                 try:
                     await client.ws.send_json(msg)
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S110 — WebSocket send may fail on disconnect
                     pass
         except Exception:  # noqa: BLE001
             logger.debug("Failed to fetch data for %s %s", asset, timeframe)
@@ -204,7 +204,7 @@ class StreamManager:
             if client:
                 try:
                     await client.ws.close()
-                except Exception:  # noqa: BLE001
+                except Exception:  # noqa: BLE001, S110 — WebSocket close may fail
                     pass
 
 
@@ -228,6 +228,10 @@ async def _handle_message(client_id: str, raw: str) -> None:
 
     if msg_type == "ping":
         await _send_pong(client_id, msg.get("timestamp", 0))
+    elif msg_type == "pong":
+        client = _manager.clients.get(client_id)
+        if client:
+            client.last_pong = time.monotonic()
     elif msg_type == "subscribe":
         await _handle_subscribe(client_id, msg, request_id)
     elif msg_type == "unsubscribe":
@@ -339,7 +343,7 @@ async def _send_error(client_id: str, code: str, message: str, request_id: str =
                 "request_id": request_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
-        except Exception:  # noqa: BLE001
+        except Exception:  # noqa: BLE001, S110 — WebSocket send may fail on disconnect
             pass
 
 
@@ -352,7 +356,7 @@ async def _send_error(client_id: str, code: str, message: str, request_id: str =
 async def stream_endpoint(ws: WebSocket) -> None:
     await ws.accept()
     client_id = str(uuid.uuid4())
-    client = _manager.register(ws, client_id)
+    _manager.register(ws, client_id)
 
     await _manager.start()
 

@@ -166,23 +166,38 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels: _panels, s
 
   useEffect(() => {
     if (!chartRef.current) return;
-    cleanupOverlays();
+
+    const existingNames = new Set(overlayRef.current.keys());
+    const newNames = new Set(overlays.map(o => o.name));
+
+    for (const name of existingNames) {
+      if (!newNames.has(name)) {
+        const series = overlayRef.current.get(name);
+        if (series) {
+          try { chartRef.current.removeSeries(series); } catch { /* removed */ }
+          overlayRef.current.delete(name);
+        }
+      }
+    }
 
     for (const ov of overlays) {
-      const color = OVERLAY_COLORS[ov.name] ?? '#FFFFFF';
-      const lineSeries = chartRef.current.addLineSeries({
-        color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
-      });
+      const existing = overlayRef.current.get(ov.name);
       const data: LineData[] = ov.points.map(p => ({
         time: barTimeToChartTime(p.time),
         value: p.value,
       }));
-      if (data.length > 0) {
-        lineSeries.setData(data);
+      if (existing) {
+        if (data.length > 0) existing.setData(data);
+      } else {
+        const color = OVERLAY_COLORS[ov.name] ?? '#FFFFFF';
+        const lineSeries = chartRef.current.addLineSeries({
+          color, lineWidth: 1, priceLineVisible: false, lastValueVisible: false,
+        });
+        if (data.length > 0) lineSeries.setData(data);
+        overlayRef.current.set(ov.name, lineSeries);
       }
-      overlayRef.current.set(ov.name, lineSeries);
     }
-  }, [overlays, cleanupOverlays]);
+  }, [overlays]);
 
   return <div ref={containerRef} style={{ width: '100%', height: 500 }} />;
 };

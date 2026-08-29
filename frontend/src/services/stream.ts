@@ -9,6 +9,7 @@
  */
 
 import type { OHLCBar } from '../types';
+import { WS_BASE } from './config';
 
 // ============================================================
 // Types
@@ -17,7 +18,7 @@ import type { OHLCBar } from '../types';
 export type ConnectionState = 'connecting' | 'live' | 'reconnecting' | 'fallback' | 'offline';
 
 export type ServerMessageType = 'connected' | 'subscribed' | 'unsubscribed' | 'market_update' | 'initial_data' | 'pong' | 'error' | 'ping';
-export type ClientMessageType = 'subscribe' | 'unsubscribe' | 'ping';
+export type ClientMessageType = 'subscribe' | 'unsubscribe' | 'ping' | 'pong';
 
 export interface ServerMessage {
   type: ServerMessageType;
@@ -106,8 +107,7 @@ export class MarketStreamService {
   private manualClose = false;
 
   constructor(callbacks: StreamCallbacks) {
-    const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
-    this.url = API_BASE.replace(/^http/, 'ws') + '/ws/stream';
+    this.url = WS_BASE + '/ws/stream';
     this.callbacks = callbacks;
   }
 
@@ -166,7 +166,7 @@ export class MarketStreamService {
       });
     } else {
       this.pendingSubscribe = { asset, timeframe };
-      if (this.state === 'offline' || this.state === 'fallback') {
+      if (this.state !== 'connecting') {
         this.connect();
       }
     }
@@ -244,7 +244,7 @@ export class MarketStreamService {
         break;
 
       case 'ping':
-        this._send({ type: 'ping', timestamp: Date.now() });
+        this._send({ type: 'pong', timestamp: Date.now() });
         break;
 
       case 'error': {

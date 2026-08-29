@@ -1,6 +1,7 @@
 import type { OHLCBar, IndicatorSeries, Asset, Timeframe, AnalysisMetrics, IndicatorParamDef, IndicatorDisplayType } from '../types';
+import { API_BASE } from './config';
 
-export const API_BASE = (import.meta.env.VITE_API_URL || 'https://aurora-core-1-txvl.onrender.com').replace(/\/$/, '');
+export { API_BASE } from './config';
 
 interface BackendOHLCResponse {
   symbol: string;
@@ -178,7 +179,7 @@ export async function fetchOHLCV(
   signal?: AbortSignal
 ): Promise<{ bars: OHLCBar[]; isDemo: boolean; provider: string; stale: boolean; empty: boolean }> {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  const backendData = await fetchOHLCFromBackend(symbol, timeframe, nBars);
+  const backendData = await fetchOHLCFromBackend(symbol, timeframe, nBars, signal);
   if (backendData) {
     return { ...backendData, empty: false };
   }

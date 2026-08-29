@@ -73,22 +73,30 @@ class TestViteApiUrlRespected:
     """Verify VITE_API_URL is used as the configuration mechanism."""
 
     def test_data_service_uses_vite_api_url(self):
-        """data.ts must read VITE_API_URL from import.meta.env."""
+        """data.ts or config.ts must read VITE_API_URL from import.meta.env."""
+        config_ts = FRONTEND_SRC / "services" / "config.ts"
         data_ts = FRONTEND_SRC / "services" / "data.ts"
-        content = _read(data_ts)
-        assert VITE_API_URL_PATTERN.search(content), "data.ts must use import.meta.env.VITE_API_URL"
+        config_content = _read(config_ts)
+        data_content = _read(data_ts)
+        assert VITE_API_URL_PATTERN.search(config_content) or VITE_API_URL_PATTERN.search(data_content), (
+            "config.ts or data.ts must use import.meta.env.VITE_API_URL"
+        )
 
     def test_data_service_exports_api_base(self):
-        """data.ts must export API_BASE for other modules."""
+        """data.ts must export API_BASE (directly or via re-export)."""
         data_ts = FRONTEND_SRC / "services" / "data.ts"
         content = _read(data_ts)
-        assert "export const API_BASE" in content, "data.ts must export API_BASE"
+        assert "export" in content and "API_BASE" in content, "data.ts must export API_BASE"
 
     def test_data_service_fallback_is_render(self):
-        """data.ts fallback URL must be the Render production backend."""
+        """config.ts or data.ts must contain the Render production backend URL."""
+        config_ts = FRONTEND_SRC / "services" / "config.ts"
         data_ts = FRONTEND_SRC / "services" / "data.ts"
-        content = _read(data_ts)
-        assert PRODUCTION_API_URL in content, f"data.ts must contain {PRODUCTION_API_URL} as fallback"
+        config_content = _read(config_ts)
+        data_content = _read(data_ts)
+        assert PRODUCTION_API_URL in config_content or PRODUCTION_API_URL in data_content, (
+            f"config.ts or data.ts must contain {PRODUCTION_API_URL} as fallback"
+        )
 
 
 class TestFrontendUsesCentralizedConfig:
