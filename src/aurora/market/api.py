@@ -24,6 +24,7 @@ from aurora.market.provider import (
     create_provider,
 )
 from aurora.market.rate_limiter import RequestThrottler
+from aurora.market.stream import router as stream_router
 from aurora.product.assets import get_asset, list_assets
 
 # ============================================================
@@ -110,6 +111,8 @@ app = FastAPI(
     description="Market data infrastructure. No predictions. NO_DEPLOYMENT_SIGNAL.",
     version="0.3.0",
 )
+
+app.include_router(stream_router)
 
 app.add_middleware(
     CORSMiddleware,

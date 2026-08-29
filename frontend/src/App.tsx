@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from './types';
 import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo } from './services/data';
+import { MarketStreamService, type ConnectionState } from './services/stream';
 import { TopBar } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
 import { PriceChart } from './components/PriceChart';
@@ -8,6 +9,7 @@ import { AnalysisPanel } from './components/AnalysisPanel';
 import { IndicatorSelector } from './components/IndicatorSelector';
 import { MarketStructurePanel } from './components/MarketStructurePanel';
 import { MarketContextPanel } from './components/MarketContextPanel';
+import { ConnectionStatus } from './components/ConnectionStatus';
 import { LandingPage } from './pages/LandingPage';
 import { AssetExplorer } from './pages/AssetExplorer';
 import { ResearchLab } from './pages/ResearchLab';
@@ -16,7 +18,7 @@ import { SettingsPage } from './pages/SettingsPage';
 
 type Page = 'landing' | 'terminal' | 'explorer' | 'research' | 'analysis' | 'settings';
 
-const POLL_INTERVAL = 60_000;
+const REST_FALLBACK_INTERVAL = 60_000;
 
 function App() {
   const [page, setPage] = useState<Page>('landing');
@@ -38,9 +40,12 @@ function App() {
   );
   const [structureEnabled, setStructureEnabled] = useState(false);
   const [contextEnabled, setContextEnabled] = useState(false);
+  const [connectionState, setConnectionState] = useState<ConnectionState>('offline');
   const barsRef = useRef<OHLCBar[]>([]);
   const abortRef = useRef<AbortController | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const fallbackRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamRef = useRef<MarketStreamService | null>(null);
+  const connectionProviderRef = useRef<string>('');
 
   const loadData = useCallback(async (isPoll = false) => {
     if (abortRef.current) abortRef.current.abort();
@@ -78,15 +83,68 @@ function App() {
   }, [selectedAsset, selectedTimeframe, enabledIndicators]);
 
   useEffect(() => {
-    loadData();
-    return () => { abortRef.current?.abort(); };
+    const stream = new MarketStreamService({
+      onConnectionChange: (state) => {
+        setConnectionState(state);
+        if (state === 'fallback') {
+          loadData(true);
+        }
+      },
+      onInitialData: (initialBars, asset, tf, provider, isDemo) => {
+        if (asset !== selectedAsset || tf !== selectedTimeframe) return;
+        connectionProviderRef.current = provider;
+        const mappedBars = initialBars.map(b => ({ ...b, time: (b as unknown as { timestamp: string }).timestamp ?? b.time }));
+        barsRef.current = mappedBars;
+        setBars(mappedBars);
+        setOverlays(computeAllIndicators(mappedBars, enabledIndicators));
+        setMetrics(getAnalysisMetrics(mappedBars));
+        setDataSource({ isDemo, provider, stale: false });
+        setLoading(false);
+        setError(null);
+        setBackendDown(false);
+        setEmptyData(mappedBars.length === 0);
+      },
+      onUpdate: (bar, asset, tf) => {
+        if (asset !== selectedAsset || tf !== selectedTimeframe) return;
+        const mappedBar = { ...bar, time: (bar as unknown as { timestamp: string }).timestamp ?? bar.time };
+        setBars(prev => {
+          const next = [...prev];
+          if (next.length > 0 && next[next.length - 1].time === mappedBar.time) {
+            next[next.length - 1] = mappedBar;
+          } else {
+            next.push(mappedBar);
+          }
+          return next;
+        });
+        setMetrics(prev => {
+          if (!prev) return prev;
+          return { ...prev, latestClose: mappedBar.close };
+        });
+      },
+      onError: (_code, message) => {
+        setError(message);
+      },
+    });
+    streamRef.current = stream;
+    return () => { stream.destroy(); };
+  }, []);
+
+  useEffect(() => {
+    streamRef.current?.subscribe(selectedAsset, selectedTimeframe);
   }, [selectedAsset, selectedTimeframe]);
 
   useEffect(() => {
-    if (pollRef.current) clearInterval(pollRef.current);
-    pollRef.current = setInterval(() => loadData(true), POLL_INTERVAL);
-    return () => { if (pollRef.current) clearInterval(pollRef.current); };
-  }, [loadData]);
+    if (fallbackRef.current) clearInterval(fallbackRef.current);
+    if (connectionState === 'fallback' || connectionState === 'offline') {
+      fallbackRef.current = setInterval(() => loadData(true), REST_FALLBACK_INTERVAL);
+    }
+    return () => { if (fallbackRef.current) clearInterval(fallbackRef.current); };
+  }, [connectionState, loadData]);
+
+  useEffect(() => {
+    loadData();
+    return () => { abortRef.current?.abort(); };
+  }, [selectedAsset, selectedTimeframe]);
 
   useEffect(() => {
     if (barsRef.current.length > 0) {
@@ -139,7 +197,7 @@ function App() {
 
   return (
     <div style={styles.app}>
-      <NavBar page={page} setPage={setPage} dataMode={dataMode} />
+      <NavBar page={page} setPage={setPage} dataMode={dataMode} connectionState={connectionState} provider={connectionProviderRef.current} isDemo={dataSource.isDemo} />
       {page === 'terminal' && (
         <div style={styles.terminalLayout} className="terminal-layout">
           <div style={styles.watchlistPanel} className="watchlist-panel">
@@ -261,7 +319,10 @@ const NavBar: React.FC<{
   page: Page;
   setPage: (p: Page) => void;
   dataMode: 'demo' | 'live';
-}> = ({ page, setPage, dataMode }) => {
+  connectionState: ConnectionState;
+  provider: string;
+  isDemo: boolean;
+}> = ({ page, setPage, dataMode, connectionState, provider, isDemo }) => {
   const links: { id: Page; label: string }[] = [
     { id: 'landing', label: 'Home' },
     { id: 'terminal', label: 'Terminal' },
@@ -278,6 +339,7 @@ const NavBar: React.FC<{
         <span style={dataMode === 'live' ? styles.liveModeBadge : styles.demoModeBadge}>
           {dataMode === 'live' ? 'LIVE' : 'DEMO'}
         </span>
+        <ConnectionStatus state={connectionState} provider={provider} isDemo={isDemo} />
       </div>
       <div style={styles.navLinks}>
         {links.map(l => (
