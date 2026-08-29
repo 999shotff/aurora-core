@@ -158,6 +158,18 @@ class DemoMarketDataProvider:
     def is_demo(self) -> bool:
         return True
 
+    _TIMEFRAME_DELTAS: ClassVar[dict[str, timedelta]] = {
+        "1m": timedelta(minutes=1),
+        "5m": timedelta(minutes=5),
+        "15m": timedelta(minutes=15),
+        "30m": timedelta(minutes=30),
+        "1h": timedelta(hours=1),
+        "4h": timedelta(hours=4),
+        "1d": timedelta(days=1),
+        "1w": timedelta(weeks=1),
+        "1M": timedelta(days=30),
+    }
+
     def _generate_candles(
         self, symbol: str, timeframe: str, limit: int
     ) -> list[CandleData]:
@@ -167,8 +179,9 @@ class DemoMarketDataProvider:
         now = datetime.now(timezone.utc)
         bars: list[CandleData] = []
         price = start_price
+        delta = self._TIMEFRAME_DELTAS.get(timeframe, timedelta(days=1))
         for i in range(limit):
-            ts = now - timedelta(days=limit - i)
+            ts = now - delta * (limit - i)
             ret = rng.gauss(0.0002, volatility)
             price *= (1 + ret)
             high = price * (1 + abs(rng.gauss(0, volatility * 0.5)))
@@ -264,6 +277,28 @@ class RealMarketDataProvider:
     def is_demo(self) -> bool:
         return False
 
+    @staticmethod
+    def _aggregate_to_4h(candles: list[CandleData]) -> list[CandleData]:
+        """Group 1h candles into 4h candles aligned to UTC boundaries."""
+        from collections import OrderedDict
+        groups: OrderedDict[str, list[CandleData]] = OrderedDict()
+        for c in candles:
+            dt = datetime.strptime(c.timestamp, "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc)
+            hour_bucket = (dt.hour // 4) * 4
+            key = dt.replace(hour=hour_bucket, minute=0, second=0, microsecond=0).strftime("%Y-%m-%dT%H:%M:%SZ")
+            groups.setdefault(key, []).append(c)
+        result: list[CandleData] = []
+        for key, group in groups.items():
+            result.append(CandleData(
+                timestamp=key,
+                open=group[0].open,
+                high=max(c.high for c in group),
+                low=min(c.low for c in group),
+                close=group[-1].close,
+                volume=sum(c.volume for c in group),
+            ))
+        return result
+
     def get_ohlc(
         self, symbol: str, timeframe: str = "1d", limit: int = 200
     ) -> ProviderResponse:
@@ -322,6 +357,8 @@ class RealMarketDataProvider:
                     close=round(float(row["Close"]), 4),
                     volume=round(float(row["Volume"]), 0),
                 ))
+            if timeframe == "4h":
+                candles = self._aggregate_to_4h(candles)
             candles = candles[-limit:]
             return ProviderResponse(
                 candles=candles, symbol=symbol, timeframe=timeframe,

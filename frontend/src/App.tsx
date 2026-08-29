@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from './types';
-import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo } from './services/data';
+import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo, INDICATOR_GROUPS } from './services/data';
 import { MarketStreamService, type ConnectionState } from './services/stream';
 import { TopBar } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
@@ -114,11 +114,10 @@ function App() {
           } else {
             next.push(mappedBar);
           }
+          barsRef.current = next;
+          setOverlays(computeAllIndicators(next, enabledIndicators));
+          setMetrics(getAnalysisMetrics(next));
           return next;
-        });
-        setMetrics(prev => {
-          if (!prev) return prev;
-          return { ...prev, latestClose: mappedBar.close };
         });
       },
       onError: (_code, message) => {
@@ -181,11 +180,10 @@ function App() {
 
   const lastBar = bars[bars.length - 1];
   const isIntraday = selectedTimeframe !== '1D' && selectedTimeframe !== '1W';
-  const oscillatorSeries = overlays.filter(s =>
-    ['rsi_14', 'macd_line', 'macd_signal', 'macd_histogram', 'stoch_k', 'stoch_d',
-     'cci_20', 'roc_12', 'williamsr_14', 'adx_line', 'adx_plus_di', 'adx_minus_di',
-     'atr_14', 'obv', 'mfi_14'].includes(s.name)
+  const oscillatorIds = new Set(
+    INDICATOR_GROUPS.filter(g => !g.overlay).flatMap(g => g.subSeries)
   );
+  const oscillatorSeries = overlays.filter(s => oscillatorIds.has(s.name));
 
   if (page === 'landing') {
     return (
@@ -241,7 +239,7 @@ function App() {
             ) : (
               <>
                 <div style={styles.chartArea}>
-                  <PriceChart bars={bars} overlays={overlays} panels={oscillatorSeries} structureEnabled={structureEnabled} isIntraday={isIntraday} />
+                  <PriceChart bars={bars} overlays={overlays.filter(s => !oscillatorIds.has(s.name))} panels={oscillatorSeries} structureEnabled={structureEnabled} isIntraday={isIntraday} />
                 </div>
                 <div style={styles.dataBar}>
                   {lastBar && (

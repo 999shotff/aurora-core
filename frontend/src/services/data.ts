@@ -673,7 +673,11 @@ export function computeFibonacci(
   return result;
 }
 
-export function computeAllIndicators(bars: OHLCBar[], enabled?: Set<string>): IndicatorSeries[] {
+export function computeAllIndicators(
+  bars: OHLCBar[],
+  enabled?: Set<string>,
+  params?: Record<string, Record<string, number>>
+): IndicatorSeries[] {
   const closes = bars.map(b => b.close);
   const highs = bars.map(b => b.high);
   const lows = bars.map(b => b.low);
@@ -681,67 +685,87 @@ export function computeAllIndicators(bars: OHLCBar[], enabled?: Set<string>): In
   const times = bars.map(b => b.time);
   const series: IndicatorSeries[] = [];
   const on = (id: string) => !enabled || enabled.has(id);
+  const p = (id: string) => params?.[id] ?? {};
 
-  const addSeries = (name: string, values: (number | null)[], params: Record<string, number | string> = {}) => {
+  const addSeries = (name: string, values: (number | null)[], seriesParams: Record<string, number | string> = {}) => {
     series.push({
       name,
-      parameters: params,
-      points: values.map((v, i) => v !== null ? { time: times[i], value: v } : null).filter((p): p is { time: string; value: number } => p !== null),
+      parameters: seriesParams,
+      points: values.map((v, i) => v !== null ? { time: times[i], value: v } : null).filter((pt): pt is { time: string; value: number } => pt !== null),
     });
   };
 
   if (on('sma')) {
-    addSeries('sma_20', computeSMA(closes, 20), { period: 20 });
+    const period = p('sma').period ?? 20;
+    addSeries('sma_20', computeSMA(closes, period), { period });
     addSeries('sma_50', computeSMA(closes, 50), { period: 50 });
   }
   if (on('ema')) {
-    addSeries('ema_12', computeEMA(closes, 12), { period: 12 });
+    const period = p('ema').period ?? 12;
+    addSeries('ema_12', computeEMA(closes, period), { period });
     addSeries('ema_26', computeEMA(closes, 26), { period: 26 });
   }
   if (on('adx')) {
-    const adx = computeAdxDmi(highs, lows, closes, 14);
-    addSeries('adx_plus_di', adx.plusDi, { period: 14 });
-    addSeries('adx_minus_di', adx.minusDi, { period: 14 });
-    addSeries('adx_line', adx.adx, { period: 14 });
+    const period = p('adx').period ?? 14;
+    const adx = computeAdxDmi(highs, lows, closes, period);
+    addSeries('adx_plus_di', adx.plusDi, { period });
+    addSeries('adx_minus_di', adx.minusDi, { period });
+    addSeries('adx_line', adx.adx, { period });
   }
   if (on('ichimoku')) {
-    const ich = computeIchimoku(highs, lows, closes);
-    addSeries('ichimoku_tenkan', ich.tenkanSen, { tenkan: 9, kijun: 26, senkouB: 52 });
+    const tenkan = p('ichimoku').tenkan ?? 9;
+    const kijun = p('ichimoku').kijun ?? 26;
+    const senkouB = p('ichimoku').senkouB ?? 52;
+    const ich = computeIchimoku(highs, lows, closes, tenkan, kijun, senkouB);
+    addSeries('ichimoku_tenkan', ich.tenkanSen, { tenkan, kijun, senkouB });
     addSeries('ichimoku_kijun', ich.kijunSen);
     addSeries('ichimoku_senkou_a', ich.senkouA);
     addSeries('ichimoku_senkou_b', ich.senkouB);
   }
   if (on('rsi')) {
-    addSeries('rsi_14', computeRSI(closes, 14), { period: 14 });
+    const period = p('rsi').period ?? 14;
+    addSeries('rsi_14', computeRSI(closes, period), { period });
   }
   if (on('macd')) {
-    const macd = computeMACD(closes);
-    addSeries('macd_line', macd.macdLine, { fast: 12, slow: 26, signal: 9 });
+    const fast = p('macd').fast ?? 12;
+    const slow = p('macd').slow ?? 26;
+    const signal = p('macd').signal ?? 9;
+    const macd = computeMACD(closes, fast, slow, signal);
+    addSeries('macd_line', macd.macdLine, { fast, slow, signal });
     addSeries('macd_signal', macd.signalLine);
     addSeries('macd_histogram', macd.histogram);
   }
   if (on('stochastic')) {
-    const stoch = computeStochastic(highs, lows, closes);
-    addSeries('stoch_k', stoch.k, { kPeriod: 14, dPeriod: 3, smoothK: 3 });
+    const kPeriod = p('stochastic').kPeriod ?? 14;
+    const dPeriod = p('stochastic').dPeriod ?? 3;
+    const smoothK = p('stochastic').smoothK ?? 3;
+    const stoch = computeStochastic(highs, lows, closes, kPeriod, dPeriod, smoothK);
+    addSeries('stoch_k', stoch.k, { kPeriod, dPeriod, smoothK });
     addSeries('stoch_d', stoch.d);
   }
   if (on('cci')) {
-    addSeries('cci_20', computeCCI(highs, lows, closes, 20), { period: 20 });
+    const period = p('cci').period ?? 20;
+    addSeries('cci_20', computeCCI(highs, lows, closes, period), { period });
   }
   if (on('roc')) {
-    addSeries('roc_12', computeROC(closes, 12), { period: 12 });
+    const period = p('roc').period ?? 12;
+    addSeries('roc_12', computeROC(closes, period), { period });
   }
   if (on('williamsr')) {
-    addSeries('williamsr_14', computeWilliamsR(highs, lows, closes, 14), { period: 14 });
+    const period = p('williamsr').period ?? 14;
+    addSeries('williamsr_14', computeWilliamsR(highs, lows, closes, period), { period });
   }
   if (on('bb')) {
-    const bb = computeBollinger(closes);
-    addSeries('bb_upper', bb.upper, { period: 20, stdDev: 2 });
+    const period = p('bb').period ?? 20;
+    const stdDev = p('bb').stdDev ?? 2;
+    const bb = computeBollinger(closes, period, stdDev);
+    addSeries('bb_upper', bb.upper, { period, stdDev });
     addSeries('bb_middle', bb.middle);
     addSeries('bb_lower', bb.lower);
   }
   if (on('atr')) {
-    addSeries('atr_14', computeATR(highs, lows, closes, 14), { period: 14 });
+    const period = p('atr').period ?? 14;
+    addSeries('atr_14', computeATR(highs, lows, closes, period), { period });
   }
   if (on('obv')) {
     addSeries('obv', computeOBV(closes, volumes));
@@ -750,7 +774,8 @@ export function computeAllIndicators(bars: OHLCBar[], enabled?: Set<string>): In
     addSeries('vwap', computeVWAP(highs, lows, closes, volumes));
   }
   if (on('mfi')) {
-    addSeries('mfi_14', computeMFI(highs, lows, closes, volumes, 14), { period: 14 });
+    const period = p('mfi').period ?? 14;
+    addSeries('mfi_14', computeMFI(highs, lows, closes, volumes, period), { period });
   }
   if (on('pivot')) {
     const piv = computePivotPoints(highs, lows, closes);
@@ -776,58 +801,186 @@ export interface IndicatorDef {
   displayType: IndicatorDisplayType;
   minDataLength: number;
   params: IndicatorParamDef[];
+  subSeries: string[];
+}
+
+export type { IndicatorParamDef };
+
+export interface IndicatorConfig {
+  id: string;
+  name: string;
+  group: string;
+  overlay: boolean;
+  displayType: 'overlay' | 'oscillator';
+  params: IndicatorParamDef[];
+  subSeries: string[];
 }
 
 export const INDICATOR_GROUPS: IndicatorDef[] = [
   { id: 'sma', name: 'SMA', group: 'TREND', overlay: true, displayType: 'overlay', minDataLength: 20,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 200, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 200, step: 1 }],
+    subSeries: ['sma_20', 'sma_50'] },
   { id: 'ema', name: 'EMA', group: 'TREND', overlay: true, displayType: 'overlay', minDataLength: 26,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 2, max: 200, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 2, max: 200, step: 1 }],
+    subSeries: ['ema_12', 'ema_26'] },
   { id: 'adx', name: 'ADX/DMI', group: 'TREND', overlay: false, displayType: 'oscillator', minDataLength: 28,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }],
+    subSeries: ['adx_plus_di', 'adx_minus_di', 'adx_line'] },
   { id: 'ichimoku', name: 'Ichimoku', group: 'TREND', overlay: true, displayType: 'overlay', minDataLength: 52,
     params: [
       { id: 'tenkan', label: 'Tenkan', type: 'number', default: 9, min: 2, max: 100, step: 1 },
       { id: 'kijun', label: 'Kijun', type: 'number', default: 26, min: 2, max: 200, step: 1 },
       { id: 'senkouB', label: 'Senkou B', type: 'number', default: 52, min: 2, max: 200, step: 1 },
-    ] },
+    ],
+    subSeries: ['ichimoku_tenkan', 'ichimoku_kijun', 'ichimoku_senkou_a', 'ichimoku_senkou_b'] },
   { id: 'rsi', name: 'RSI', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 15,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }],
+    subSeries: ['rsi_14'] },
   { id: 'macd', name: 'MACD', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 35,
     params: [
       { id: 'fast', label: 'Fast', type: 'number', default: 12, min: 2, max: 100, step: 1 },
       { id: 'slow', label: 'Slow', type: 'number', default: 26, min: 2, max: 200, step: 1 },
       { id: 'signal', label: 'Signal', type: 'number', default: 9, min: 2, max: 100, step: 1 },
-    ] },
+    ],
+    subSeries: ['macd_line', 'macd_signal', 'macd_histogram'] },
   { id: 'stochastic', name: 'Stochastic', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 17,
     params: [
       { id: 'kPeriod', label: '%K', type: 'number', default: 14, min: 2, max: 100, step: 1 },
       { id: 'dPeriod', label: '%D', type: 'number', default: 3, min: 2, max: 50, step: 1 },
       { id: 'smoothK', label: 'Smooth', type: 'number', default: 3, min: 1, max: 50, step: 1 },
-    ] },
+    ],
+    subSeries: ['stoch_k', 'stoch_d'] },
   { id: 'cci', name: 'CCI', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 20,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 100, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 100, step: 1 }],
+    subSeries: ['cci_20'] },
   { id: 'roc', name: 'ROC', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 13,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 1, max: 100, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 1, max: 100, step: 1 }],
+    subSeries: ['roc_12'] },
   { id: 'williamsr', name: 'Williams %R', group: 'MOMENTUM', overlay: false, displayType: 'oscillator', minDataLength: 14,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }],
+    subSeries: ['williamsr_14'] },
   { id: 'bb', name: 'Bollinger', group: 'VOLATILITY', overlay: true, displayType: 'overlay', minDataLength: 20,
     params: [
       { id: 'period', label: 'Period', type: 'number', default: 20, min: 2, max: 200, step: 1 },
       { id: 'stdDev', label: 'Std Dev', type: 'number', default: 2, min: 0.5, max: 5, step: 0.5 },
-    ] },
+    ],
+    subSeries: ['bb_upper', 'bb_middle', 'bb_lower'] },
   { id: 'atr', name: 'ATR', group: 'VOLATILITY', overlay: false, displayType: 'oscillator', minDataLength: 14,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 1, max: 100, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 1, max: 100, step: 1 }],
+    subSeries: ['atr_14'] },
   { id: 'obv', name: 'OBV', group: 'VOLUME', overlay: false, displayType: 'oscillator', minDataLength: 2,
-    params: [] },
+    params: [],
+    subSeries: ['obv'] },
   { id: 'vwap', name: 'VWAP', group: 'VOLUME', overlay: true, displayType: 'overlay', minDataLength: 1,
-    params: [] },
+    params: [],
+    subSeries: ['vwap'] },
   { id: 'mfi', name: 'MFI', group: 'VOLUME', overlay: false, displayType: 'oscillator', minDataLength: 15,
-    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }] },
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }],
+    subSeries: ['mfi_14'] },
   { id: 'pivot', name: 'Pivot Points', group: 'LEVELS', overlay: true, displayType: 'overlay', minDataLength: 2,
-    params: [] },
+    params: [],
+    subSeries: ['pivot_pp', 'pivot_r1', 'pivot_r2', 'pivot_r3', 'pivot_s1', 'pivot_s2', 'pivot_s3'] },
   { id: 'fib', name: 'Fibonacci', group: 'LEVELS', overlay: true, displayType: 'overlay', minDataLength: 2,
-    params: [] },
+    params: [],
+    subSeries: [] },
+];
+
+export const INDICATOR_CONFIGS: IndicatorConfig[] = [
+  {
+    id: 'sma', name: 'SMA', group: 'TREND', overlay: true, displayType: 'overlay',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 5, max: 200, step: 1 }],
+    subSeries: ['sma_20', 'sma_50'],
+  },
+  {
+    id: 'ema', name: 'EMA', group: 'TREND', overlay: true, displayType: 'overlay',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 5, max: 200, step: 1 }],
+    subSeries: ['ema_12', 'ema_26'],
+  },
+  {
+    id: 'rsi', name: 'RSI', group: 'MOMENTUM', overlay: false, displayType: 'oscillator',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }],
+    subSeries: ['rsi_14'],
+  },
+  {
+    id: 'macd', name: 'MACD', group: 'MOMENTUM', overlay: false, displayType: 'oscillator',
+    params: [
+      { id: 'fast', label: 'Fast', type: 'number', default: 12, min: 2, max: 50, step: 1 },
+      { id: 'slow', label: 'Slow', type: 'number', default: 26, min: 5, max: 100, step: 1 },
+      { id: 'signal', label: 'Signal', type: 'number', default: 9, min: 2, max: 50, step: 1 },
+    ],
+    subSeries: ['macd_line', 'macd_signal', 'macd_histogram'],
+  },
+  {
+    id: 'bb', name: 'Bollinger', group: 'VOLATILITY', overlay: true, displayType: 'overlay',
+    params: [
+      { id: 'period', label: 'Period', type: 'number', default: 20, min: 5, max: 100, step: 1 },
+      { id: 'stdDev', label: 'Std Dev', type: 'number', default: 2.0, min: 0.5, max: 5.0, step: 0.1 },
+    ],
+    subSeries: ['bb_upper', 'bb_middle', 'bb_lower'],
+  },
+  {
+    id: 'atr', name: 'ATR', group: 'VOLATILITY', overlay: false, displayType: 'oscillator',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }],
+    subSeries: ['atr_14'],
+  },
+  {
+    id: 'stochastic', name: 'Stochastic', group: 'MOMENTUM', overlay: false, displayType: 'oscillator',
+    params: [
+      { id: 'kPeriod', label: '%K', type: 'number', default: 14, min: 2, max: 50, step: 1 },
+      { id: 'dPeriod', label: '%D', type: 'number', default: 3, min: 2, max: 20, step: 1 },
+      { id: 'smoothK', label: 'Smooth', type: 'number', default: 3, min: 1, max: 10, step: 1 },
+    ],
+    subSeries: ['stoch_k', 'stoch_d'],
+  },
+  {
+    id: 'cci', name: 'CCI', group: 'MOMENTUM', overlay: false, displayType: 'oscillator',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 20, min: 5, max: 100, step: 1 }],
+    subSeries: ['cci_20'],
+  },
+  {
+    id: 'roc', name: 'ROC', group: 'MOMENTUM', overlay: false, displayType: 'oscillator',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 12, min: 2, max: 50, step: 1 }],
+    subSeries: ['roc_12'],
+  },
+  {
+    id: 'williamsr', name: 'Williams %R', group: 'MOMENTUM', overlay: false, displayType: 'oscillator',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 100, step: 1 }],
+    subSeries: ['williamsr_14'],
+  },
+  {
+    id: 'adx', name: 'ADX/DMI', group: 'TREND', overlay: false, displayType: 'oscillator',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 5, max: 50, step: 1 }],
+    subSeries: ['adx_plus_di', 'adx_minus_di', 'adx_line'],
+  },
+  {
+    id: 'obv', name: 'OBV', group: 'VOLUME', overlay: false, displayType: 'oscillator',
+    params: [],
+    subSeries: ['obv'],
+  },
+  {
+    id: 'vwap', name: 'VWAP', group: 'VOLUME', overlay: true, displayType: 'overlay',
+    params: [],
+    subSeries: ['vwap'],
+  },
+  {
+    id: 'mfi', name: 'MFI', group: 'VOLUME', overlay: false, displayType: 'oscillator',
+    params: [{ id: 'period', label: 'Period', type: 'number', default: 14, min: 2, max: 50, step: 1 }],
+    subSeries: ['mfi_14'],
+  },
+  {
+    id: 'ichimoku', name: 'Ichimoku', group: 'TREND', overlay: true, displayType: 'overlay',
+    params: [
+      { id: 'tenkan', label: 'Tenkan', type: 'number', default: 9, min: 5, max: 50, step: 1 },
+      { id: 'kijun', label: 'Kijun', type: 'number', default: 10, min: 10, max: 100, step: 1 },
+      { id: 'senkouB', label: 'Senkou B', type: 'number', default: 52, min: 20, max: 200, step: 1 },
+    ],
+    subSeries: ['ichimoku_tenkan', 'ichimoku_kijun', 'ichimoku_senkou_a', 'ichimoku_senkou_b'],
+  },
+  {
+    id: 'pivot', name: 'Pivot Points', group: 'LEVELS', overlay: true, displayType: 'overlay',
+    params: [],
+    subSeries: ['pivot_pp', 'pivot_r1', 'pivot_r2', 'pivot_r3', 'pivot_s1', 'pivot_s2', 'pivot_s3'],
+  },
 ];
 
 export function getAnalysisMetrics(bars: OHLCBar[]): AnalysisMetrics {
