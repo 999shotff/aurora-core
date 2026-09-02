@@ -2,7 +2,7 @@
 
 AI-first research and market-reasoning system.
 
-## Current milestone: M26 — Evidence Confluence and Scenario Analysis
+## Current milestone: M30.1 — Earth Observation Processing + 3D Globe
 
 Production market-reasoning visualization system. React+TypeScript frontend on Vercel,
 FastAPI backend on Render. **NO_DEPLOYMENT_SIGNAL** — this is an analytical research tool,
@@ -14,6 +14,7 @@ not a trading system.
 - **Backend** (Render): FastAPI + yfinance provider
 - **Analysis Engine**: Pure Python deterministic analysis — indicators, market structure,
   evidence aggregation, confluence scoring, scenario generation
+- **Geo Module** (M30/30.1): Sentinel-2/1, NASA GIBS, SkyFi providers; raster processing; spectral indices; change detection; 3D globe
 
 ### Key Endpoints
 
@@ -22,6 +23,13 @@ not a trading system.
 | `GET /health` | Provider health, staleness, uptime |
 | `GET /market/{asset}/ohlc` | OHLCV bars with validation and provenance |
 | `GET /market/{asset}/analysis` | Full deterministic analysis (M26) |
+| `POST /api/v1/geo/health` | Geo providers health |
+| `GET /api/v1/geo/providers` | Available geo providers and capabilities |
+| `GET /api/v1/geo/datasets` | Available datasets and indices |
+| `POST /api/v1/geo/search` | Search for available imagery scenes |
+| `POST /api/v1/geo/observations` | Get full observation with raster data |
+| `POST /api/v1/geo/change-detection` | Detect change between two scenes |
+| `POST /api/v1/research/backtest` | Run deterministic backtest |
 
 ### Analysis Domains (M26)
 
@@ -35,6 +43,8 @@ not a trading system.
 - **Confluence**: Weighted evidence scoring across all domains
 - **Scenarios**: Continuation, reversal, range, breakout, breakdown
 - **Conflicts**: Cross-domain divergence detection with severity
+- **Geo Analysis** (M30.1): NDVI/NDWI/NDBI/EVI spectral indices, pixel change detection, time series analysis
+- **Backtesting** (M29): Deterministic backtest engine with RSI reversal strategy
 - **Research Integrity**: No-deployment-signal, no-predictions, deterministic
 
 ### Principles
