@@ -129,8 +129,11 @@ class SentinelProvider(GeoProvider):
             f"and att/OData.CSC.DoubleAttribute/Value le {max_cloud_pct})"
         )
 
+        import urllib.parse
+        encoded_filter = urllib.parse.quote(odata_filter, safe="")
+
         url = (
-            f"{self._base_url}/Products?$filter={odata_filter}"
+            f"{self._base_url}/Products?$filter={encoded_filter}"
             f"&$orderby=ContentDate/Start desc"
             f"&$top={page_size}&$skip={(page - 1) * page_size}"
             f"&$expand=Attributes"

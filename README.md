@@ -2,7 +2,7 @@
 
 AI-first research and market-reasoning system.
 
-## Current milestone: M30.1 — Earth Observation Processing + 3D Globe
+## Current milestone: M30.2 — Production Integration & Verification
 
 Production market-reasoning visualization system. React+TypeScript frontend on Vercel,
 FastAPI backend on Render. **NO_DEPLOYMENT_SIGNAL** — this is an analytical research tool,
@@ -14,7 +14,27 @@ not a trading system.
 - **Backend** (Render): FastAPI + yfinance provider
 - **Analysis Engine**: Pure Python deterministic analysis — indicators, market structure,
   evidence aggregation, confluence scoring, scenario generation
-- **Geo Module** (M30/30.1): Sentinel-2/1, NASA GIBS, SkyFi providers; raster processing; spectral indices; change detection; 3D globe
+- **Geo Module** (M30/30.1/30.2): Sentinel-2/1, NASA GIBS, SkyFi providers; raster processing; spectral indices; change detection; 3D globe
+
+### Feature Status
+
+| Feature | Status | Real Data Verified | Notes |
+|---|---|---|---|
+| Sentinel Provider | IMPLEMENTED | VERIFIED | Live OData API calls, URL encoding fixed |
+| NASA GIBS Provider | IMPLEMENTED | VERIFIED | Tile URLs constructed correctly, no API key needed |
+| SkyFi Provider | IMPLEMENTED | VERIFIED | Graceful NOT_CONFIGURED without API key |
+| Raster Engine | IMPLEMENTED | TEST FIXTURES | numpy-based; real satellite pixel download deferred |
+| NDVI | IMPLEMENTED | TEST FIXTURES | Per-pixel computation on real arrays |
+| NDWI | IMPLEMENTED | TEST FIXTURES | Per-pixel computation on real arrays |
+| NDBI | IMPLEMENTED | TEST FIXTURES | Per-pixel computation on real arrays |
+| EVI | IMPLEMENTED | TEST FIXTURES | Per-pixel computation on real arrays |
+| Time Series | IMPLEMENTED | TEST FIXTURES | Full engine; disconnected from API pipeline |
+| Change Detection | IMPLEMENTED | TEST FIXTURES | Pixel-level diff; API uses scalar path |
+| GeoEvidence Bridge | IMPLEMENTED | VERIFIED | Type-compatible with M26 evidence system |
+| 2D Map | PARTIAL | NOT VERIFIED | Google Static Maps without API key |
+| 3D Globe | PARTIAL | NOT VERIFIED | Decorative Three.js sphere; no Earth data |
+| Research Backtest | IMPLEMENTED | TEST FIXTURES | Deterministic engine with RSI strategy |
+| Production Build | DEFERRED | NOT VERIFIED | ARM64/musl prevents local Rollup |
 
 ### Key Endpoints
 
