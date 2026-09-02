@@ -13,12 +13,13 @@ import { ConnectionStatus } from './components/ConnectionStatus';
 import { LandingPage } from './pages/LandingPage';
 import { AssetExplorer } from './pages/AssetExplorer';
 import { ResearchLab } from './pages/ResearchLab';
+import { ResearchWorkspace } from './pages/ResearchWorkspace';
 import { AnalysisWorkspace } from './pages/AnalysisWorkspace';
 import { SettingsPage } from './pages/SettingsPage';
 import { isIntradayTimeframe } from './lib/timeframes';
 import { saveIndicatorState, loadIndicatorState } from './lib/persistence';
 
-type Page = 'landing' | 'terminal' | 'explorer' | 'research' | 'analysis' | 'settings';
+type Page = 'landing' | 'terminal' | 'explorer' | 'research' | 'workspace' | 'analysis' | 'settings';
 
 const REST_FALLBACK_INTERVAL = 60_000;
 
@@ -333,6 +334,9 @@ function App() {
       {page === 'research' && (
         <ResearchLab />
       )}
+      {page === 'workspace' && (
+        <ResearchWorkspace />
+      )}
       {page === 'analysis' && (
         <AnalysisWorkspace symbol={selectedAsset} bars={bars} />
       )}
@@ -356,6 +360,7 @@ const NavBar: React.FC<{
     { id: 'terminal', label: 'Terminal' },
     { id: 'explorer', label: 'Explorer' },
     { id: 'research', label: 'Research' },
+    { id: 'workspace', label: 'Workspace' },
     { id: 'analysis', label: 'Analysis' },
     { id: 'settings', label: 'Settings' },
   ];

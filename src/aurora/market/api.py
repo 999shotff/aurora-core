@@ -398,3 +398,189 @@ def get_market_analysis(
     result["research_conclusion"] = "NO_DEPLOYMENT_SIGNAL"
 
     return result
+
+
+# ============================================================
+# Research Backtest (M29)
+# ============================================================
+
+
+@app.post("/api/v1/research/backtest")
+def run_backtest(body: dict) -> dict:
+    """Run a deterministic backtest with RSI reversal strategy.
+
+    EXPERIMENTAL. No live trading. NO_DEPLOYMENT_SIGNAL.
+    """
+    from pydantic import BaseModel, Field
+
+    class BacktestRequest(BaseModel):
+        symbol: str = "BTC-USD"
+        timeframe: str = "daily"
+        initial_equity: float = 100_000.0
+        position_size: float = 1.0
+        commission_rate: float = 0.001
+        slippage_bps: float = 5.0
+        strategy: str = "rsi_reversal"
+        strategy_params: dict = Field(default_factory=lambda: {
+            "rsi_period": 14,
+            "rsi_overbought": 70,
+            "rsi_oversold": 30,
+        })
+
+    try:
+        req = BacktestRequest(**body)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    provider = _get_provider()
+    resp = provider.get_ohlc(req.symbol, req.timeframe, 5000)
+    if resp.source_status == "error":
+        _health.record_failure(resp.error.message if resp.error else "No data")
+        raise HTTPException(status_code=404, detail=resp.error.message if resp.error else "No data")
+    _health.record_success()
+
+    validation = normalize_and_validate(resp.candles, req.symbol)
+    if not validation.candles:
+        raise HTTPException(status_code=404, detail="No valid candles returned")
+
+    from aurora.research.backtest.data_model import (
+        Bar,
+        Dataset,
+        DatasetMetadata,
+        Provenance,
+        QualityReport,
+        QualityGrade,
+    )
+    from aurora.research.backtest.engine import BacktestEngine
+    from aurora.research.backtest.strategy import Signal, Side, StrategyConfig
+    from aurora.research.backtest.costs import FixedCostModel
+    from datetime import datetime, timezone
+
+    bars = []
+    for c in validation.candles:
+        ts = datetime.fromisoformat(c.timestamp.replace("Z", "+00:00"))
+        bars.append(Bar(
+            timestamp=ts,
+            open=c.open,
+            high=c.high,
+            low=c.low,
+            close=c.close,
+            volume=c.volume,
+        ))
+
+    dataset = Dataset(
+        bars=bars,
+        provenance=Provenance(
+            source=resp.provider_name,
+            symbol=req.symbol,
+            frequency=req.timeframe,
+            total_bars=len(bars),
+            is_demo=resp.is_demo,
+        ),
+        metadata=DatasetMetadata(
+            name=f"{req.symbol}_{req.timeframe}",
+            description=f"Backtest dataset for {req.symbol}",
+        ),
+        quality=QualityReport(
+            total_bars=len(bars),
+            quality_grade=QualityGrade.GOOD,
+        ),
+    )
+
+    rsi_period = req.strategy_params.get("rsi_period", 14)
+    rsi_overbought = req.strategy_params.get("rsi_overbought", 70)
+    rsi_oversold = req.strategy_params.get("rsi_oversold", 30)
+
+    class RSIStrategy:
+        _config = StrategyConfig(
+            name="rsi_reversal",
+            parameters={
+                "rsi_period": rsi_period,
+                "rsi_overbought": rsi_overbought,
+                "rsi_oversold": rsi_oversold,
+            },
+            lookback=rsi_period + 1,
+        )
+
+        def config(self) -> StrategyConfig:
+            return self._config
+
+        def on_start(self, dataset: Dataset) -> None:
+            pass
+
+        def on_end(self) -> None:
+            pass
+
+        def on_bar(
+            self,
+            bar: Bar,
+            history: list[Bar],
+            position: float,
+            equity: float,
+        ) -> Signal:
+            if len(history) < rsi_period:
+                return Signal(side=Side.FLAT)
+
+            closes = [b.close for b in history[-rsi_period:]]
+            avg_gain = 0.0
+            avg_loss = 0.0
+            for i in range(1, len(closes)):
+                delta = closes[i] - closes[i - 1]
+                if delta > 0:
+                    avg_gain += delta
+                else:
+                    avg_loss += abs(delta)
+            avg_gain /= rsi_period
+            avg_loss /= rsi_period
+
+            if avg_loss == 0:
+                rsi = 100.0
+            else:
+                rs = avg_gain / avg_loss
+                rsi = 100 - (100 / (1 + rs))
+
+            if position > 0:
+                if rsi > rsi_overbought:
+                    return Signal(side=Side.FLAT)
+                return Signal(side=Side.LONG)
+            else:
+                if rsi < rsi_oversold:
+                    return Signal(side=Side.LONG, strength=0.5)
+                return Signal(side=Side.FLAT)
+
+    strategy = RSIStrategy()
+    cost_model = FixedCostModel(
+        commission_rate=req.commission_rate,
+        slippage_bps=req.slippage_bps,
+    )
+
+    engine = BacktestEngine(
+        strategy=strategy,
+        cost_model=cost_model,
+        initial_equity=req.initial_equity,
+        position_size=req.position_size,
+    )
+
+    result = engine.run(dataset)
+
+    from dataclasses import asdict
+
+    def _convert(obj: object) -> object:
+        if hasattr(obj, "value"):
+            return obj.value
+        if hasattr(obj, "__dataclass_fields__"):
+            return {k: _convert(v) for k, v in asdict(obj).items()}
+        if isinstance(obj, list):
+            return [_convert(item) for item in obj]
+        if isinstance(obj, dict):
+            return {k: _convert(v) for k, v in obj.items()}
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+        return obj
+
+    output = _convert(result)
+    output["research_conclusion"] = "NO_DEPLOYMENT_SIGNAL"
+    output["is_demo"] = resp.is_demo
+    output["provider"] = resp.provider_name
+
+    return output
