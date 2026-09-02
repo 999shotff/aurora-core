@@ -109,10 +109,15 @@ def _get_cors_origins() -> list[str]:
 app = FastAPI(
     title="AURORA CORE Market Data API",
     description="Market data infrastructure. No predictions. NO_DEPLOYMENT_SIGNAL.",
-    version="0.3.0",
+    version="0.4.0",
 )
 
 app.include_router(stream_router)
+
+# M30: Mount geo sub-application
+from aurora.market.geo_api import geo_app
+for route in geo_app.routes:
+    app.router.routes.append(route)
 
 app.add_middleware(
     CORSMiddleware,
