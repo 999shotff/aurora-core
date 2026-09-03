@@ -62,10 +62,28 @@ interface ChangeResult {
 }
 
 interface TimeSeriesPoint {
-  timestamp: string;
+  date: string;
+  scene_id: string;
   value: number;
-  confidence: number;
   cloud_pct: number;
+  confidence: number;
+  integrity_state: string;
+}
+
+interface TimeSeriesResult {
+  index: string;
+  provider: string;
+  observations: TimeSeriesPoint[];
+  statistics: {
+    count: number;
+    mean: number;
+    median: number;
+    stdev: number;
+    min: number;
+    max: number;
+  } | null;
+  total_scenes_found: number;
+  uncertainty: string;
 }
 
 const styles: Record<string, React.CSSProperties> = {
@@ -112,8 +130,6 @@ const styles: Record<string, React.CSSProperties> = {
   indexName: { fontSize: '13px', fontWeight: 600, color: '#26a69a' },
   indexValue: { fontSize: '18px', fontWeight: 700, color: '#e6edf3' },
   timePoint: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(33, 38, 45, 0.5)', fontSize: '12px' },
-  layerControl: { display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 0' },
-  layerToggle: { width: '32px', height: '18px', borderRadius: '9px', border: 'none', cursor: 'pointer', position: 'relative' as const, transition: 'background 0.2s' },
 };
 
 function fmtCloud(pct: number): string { return pct.toFixed(1) + '%'; }
@@ -151,11 +167,48 @@ const GeoExplorer: React.FC = () => {
   const [selectedScenes, setSelectedScenes] = useState<GeoScene[]>([]);
   const [indices, setIndices] = useState<IndexResult[]>([]);
   const [changeResult, setChangeResult] = useState<ChangeResult | null>(null);
-  const [timeSeries, setTimeSeries] = useState<TimeSeriesPoint[]>([]);
+  const [timeSeries, setTimeSeries] = useState<TimeSeriesResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [processingIndex, setProcessingIndex] = useState(false);
+  const [loadingTimeSeries, setLoadingTimeSeries] = useState(false);
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<unknown>(null);
   const globeRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (viewMode === '2d' && mapRef.current && !mapInstanceRef.current) {
+      const L = (window as Record<string, unknown>).L;
+      if (!L) {
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+        document.head.appendChild(link);
+        const script = document.createElement('script');
+        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+        script.onload = () => initMap();
+        document.head.appendChild(script);
+      } else {
+        initMap();
+      }
+    }
+    function initMap() {
+      const L = (window as Record<string, unknown>).L as Record<string, unknown>;
+      if (!L || !mapRef.current || mapInstanceRef.current) return;
+      const centerLat = (parseFloat(south) + parseFloat(north)) / 2;
+      const centerLng = (parseFloat(west) + parseFloat(east)) / 2;
+      const map = (L as { map: (el: HTMLElement, opts: Record<string, unknown>) => unknown }).map(mapRef.current, {
+        center: [centerLat, centerLng],
+        zoom: 8,
+        zoomControl: true,
+        attributionControl: false,
+      });
+      (L as { tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown } }).tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 18,
+      }).addTo(map);
+      mapInstanceRef.current = map;
+    }
+  }, [viewMode, south, west, north, east]);
 
   useEffect(() => {
     if (viewMode === '3d' && globeRef.current && !(window as Record<string, unknown>)._auroraGlobeReady) {
@@ -177,7 +230,7 @@ const GeoExplorer: React.FC = () => {
           (renderer as Record<string, unknown>).setPixelRatio(window.devicePixelRatio);
           container.appendChild((renderer as Record<string, unknown>).domElement);
           const earthGeo = new (window as Record<string, unknown>).THREE.SphereGeometry(1, 64, 64);
-          const earthMat = new (window as Record<string, unknown>).THREE.MeshPhongMaterial({ color: 0x223344, emissive: 0x112233, specular: 0x333333, shininess: 25 });
+          const earthMat = new (window as Record<string, unknown>).THREE.MeshPhongMaterial({ color: 0x224488, emissive: 0x112244, specular: 0x444444, shininess: 25 });
           const earth = new (window as Record<string, unknown>).THREE.Mesh(earthGeo, earthMat);
           (scene as Record<string, unknown>).add(earth);
           const wireGeo = new (window as Record<string, unknown>).THREE.SphereGeometry(1.001, 32, 32);
@@ -247,7 +300,7 @@ const GeoExplorer: React.FC = () => {
       const resp = await fetch(`${API_BASE}/api/v1/geo/search`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!resp.ok) { const errBody = await resp.json().catch(() => ({})); throw new Error(errBody.detail || `HTTP ${resp.status}`); }
       const data: SearchResult = await resp.json();
-      setSearchResult(data); setSelectedScenes([]); setIndices([]); setChangeResult(null);
+      setSearchResult(data); setSelectedScenes([]); setIndices([]); setChangeResult(null); setTimeSeries(null);
     } catch (e) { setError(e instanceof Error ? e.message : 'Unknown error'); }
     finally { setLoading(false); }
   }, [aoiName, south, west, north, east, startDate, endDate, maxCloud, provider, dataset]);
@@ -280,7 +333,7 @@ const GeoExplorer: React.FC = () => {
           });
           if (resp.ok) {
             const obs = await resp.json();
-            const bands = scene.bands;
+            const bands = obs.bands || scene.bands;
             const hasNIR = bands.includes('B08');
             const hasRED = bands.includes('B04');
             const hasGREEN = bands.includes('B03');
@@ -328,6 +381,27 @@ const GeoExplorer: React.FC = () => {
     } catch { setChangeResult({ change_detected: false, integrity_state: 'PROCESSING_FAILED', uncertainty: 'Change detection failed' }); }
     finally { setLoading(false); }
   }, [selectedScenes, searchResult]);
+
+  const handleTimeSeries = useCallback(async () => {
+    setLoadingTimeSeries(true);
+    try {
+      const body = {
+        provider: provider || 'nasa_gibs',
+        dataset: dataset || 'MODIS_Terra_CorrectedReflectance_TrueColor',
+        aoi_name: aoiName,
+        south: parseFloat(south), west: parseFloat(west),
+        north: parseFloat(north), east: parseFloat(east),
+        start_date: startDate, end_date: endDate,
+        index: 'NDVI',
+        cloud_threshold: maxCloud,
+      };
+      const resp = await fetch(`${API_BASE}/api/v1/geo/timeseries`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      const data: TimeSeriesResult = await resp.json();
+      setTimeSeries(data);
+    } catch { setTimeSeries(null); }
+    finally { setLoadingTimeSeries(false); }
+  }, [provider, dataset, aoiName, south, west, north, east, startDate, endDate, maxCloud]);
 
   const calcArea = () => {
     const s = parseFloat(south), w = parseFloat(west), n = parseFloat(north), e = parseFloat(east);
@@ -442,22 +516,18 @@ const GeoExplorer: React.FC = () => {
                   )}
                 </div>
               )}
+
+              <div style={{ marginTop: '12px' }}>
+                <button style={{ ...styles.button, background: '#21262d', border: '1px solid #30363d' }} onClick={handleTimeSeries} disabled={loadingTimeSeries}>
+                  {loadingTimeSeries ? 'Loading Time Series...' : 'Load Time Series'}
+                </button>
+              </div>
             </div>
           </div>
 
           <div style={styles.mapContainer}>
             {viewMode === '2d' ? (
-              <div style={{ width: '100%', height: '100%', position: 'relative' }}>
-                <img
-                  src={`https://maps.googleapis.com/maps/api/staticmap?center=${(parseFloat(south) + parseFloat(north)) / 2},${(parseFloat(west) + parseFloat(east)) / 2}&zoom=8&size=800x600&maptype=satellite&markers=color:red%7C${(parseFloat(south) + parseFloat(north)) / 2},${(parseFloat(west) + parseFloat(east)) / 2}&style=feature:all|element:labels|visibility:off`}
-                  alt="Map"
-                  style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '12px' }}
-                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                />
-                <div style={{ position: 'absolute', bottom: '12px', left: '12px', background: 'rgba(1,4,9,0.85)', padding: '8px 12px', borderRadius: '8px', fontSize: '11px', color: '#c9d1d9' }}>
-                  {aoiName} · {(parseFloat(south) + parseFloat(north)) / 2}°, {(parseFloat(west) + parseFloat(east)) / 2}°
-                </div>
-              </div>
+              <div ref={mapRef} style={{ width: '100%', height: '100%', minHeight: '500px', borderRadius: '12px' }} />
             ) : (
               <div ref={globeRef} style={{ width: '100%', height: '100%', minHeight: '500px' }} />
             )}
@@ -547,15 +617,46 @@ const GeoExplorer: React.FC = () => {
 
               {activePanel === 'timeseries' && (
                 <div>
-                  {timeSeries.length === 0 ? <div style={styles.placeholder}>Time series will appear after processing multiple dates</div>
-                    : timeSeries.map((pt, i) => (
-                      <div key={i} style={styles.timePoint}>
-                        <span>{new Date(pt.timestamp).toLocaleDateString()}</span>
-                        <span style={{ color: '#26a69a', fontWeight: 600 }}>{pt.value.toFixed(4)}</span>
-                        <span style={{ color: '#8b949e' }}>{(pt.confidence * 100).toFixed(0)}%</span>
+                  {timeSeries ? (
+                    <div>
+                      {timeSeries.statistics && (
+                        <div style={styles.metricGrid}>
+                          <div style={styles.metricCard}>
+                            <div style={styles.metricValue}>{timeSeries.statistics.count}</div>
+                            <div style={styles.metricLabel}>Observations</div>
+                          </div>
+                          <div style={styles.metricCard}>
+                            <div style={styles.metricValue}>{fmtVal(timeSeries.statistics.mean)}</div>
+                            <div style={styles.metricLabel}>Mean {timeSeries.index}</div>
+                          </div>
+                          <div style={styles.metricCard}>
+                            <div style={styles.metricValue}>{fmtVal(timeSeries.statistics.min)}</div>
+                            <div style={styles.metricLabel}>Min</div>
+                          </div>
+                          <div style={styles.metricCard}>
+                            <div style={styles.metricValue}>{fmtVal(timeSeries.statistics.max)}</div>
+                            <div style={styles.metricLabel}>Max</div>
+                          </div>
+                        </div>
+                      )}
+                      <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                        {timeSeries.observations.map((pt, i) => (
+                          <div key={i} style={styles.timePoint}>
+                            <span>{new Date(pt.date).toLocaleDateString()}</span>
+                            <span style={{ color: '#26a69a', fontWeight: 600 }}>{pt.value.toFixed(4)}</span>
+                            <span style={{ color: '#8b949e' }}>{(pt.confidence * 100).toFixed(0)}%</span>
+                          </div>
+                        ))}
                       </div>
-                    ))
-                  }
+                      <div style={{ fontSize: '10px', color: '#8b949e', marginTop: '8px' }}>
+                        {timeSeries.uncertainty}
+                      </div>
+                    </div>
+                  ) : (
+                    <div style={styles.placeholder}>
+                      {loadingTimeSeries ? 'Loading...' : 'Click "Load Time Series" to fetch observations'}
+                    </div>
+                  )}
                 </div>
               )}
 

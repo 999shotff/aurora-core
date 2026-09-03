@@ -72,7 +72,7 @@ class GeoProvider(ABC):
     def health_check(self) -> bool:
         try:
             caps = self.get_capabilities()
-            return len(caps.datasets) >= 0
+            return len(caps.datasets) >= 1
         except Exception:
             return False
 

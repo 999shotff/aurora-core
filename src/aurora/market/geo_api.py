@@ -418,3 +418,106 @@ def detect_change(body: dict) -> dict:
         "uncertainty": c.uncertainty,
         "notes": c.notes,
     }
+
+
+# ── Time Series ──
+
+@geo_app.post("/api/v1/geo/timeseries")
+def get_timeseries(body: dict) -> dict:
+    """Build a time series of index values across multiple dates.
+
+    Searches for scenes in the date range, constructs observations,
+    computes the requested index for each, and returns the time series.
+    """
+    from pydantic import BaseModel, Field
+    from aurora.geo.domain import AOI, BoundingBox
+
+    class TimeSeriesRequest(BaseModel):
+        provider: str = "nasa_gibs"
+        dataset: str = "MODIS_Terra_CorrectedReflectance_TrueColor"
+        aoi_name: str = "default"
+        south: float = Field(..., ge=-90, le=90)
+        west: float = Field(..., ge=-180, le=180)
+        north: float = Field(..., ge=-90, le=90)
+        east: float = Field(..., ge=-180, le=180)
+        start_date: str
+        end_date: str
+        index: str = "NDVI"
+        cloud_threshold: float = 30.0
+
+    try:
+        req = TimeSeriesRequest(**body)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    from aurora.geo.providers.base import create_default_registry
+
+    registry = create_default_registry()
+    provider = registry.get(req.provider)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{req.provider}' not found")
+
+    bbox = BoundingBox(south=req.south, west=req.west, north=req.north, east=req.east)
+    aoi = AOI(name=req.aoi_name, bbox=bbox)
+
+    try:
+        start_dt = datetime.fromisoformat(req.start_date.replace("Z", "+00:00"))
+        end_dt = datetime.fromisoformat(req.end_date.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format")
+
+    search_result = provider.search_scenes(
+        aoi, start_dt, end_dt,
+        dataset=req.dataset,
+        max_cloud_pct=req.cloud_threshold,
+        page_size=50,
+    )
+
+    observations = []
+    for scene in search_result.scenes[:30]:
+        obs = provider.get_observation(scene, aoi)
+        index_val = obs.derived_values.get(f"{req.index.lower()}_mean")
+        if index_val is None:
+            band_vals = {k: v for k, v in obs.derived_values.items() if k.startswith("band_")}
+            if band_vals:
+                vals = list(band_vals.values())
+                index_val = sum(vals) / len(vals) if vals else 0.0
+            else:
+                index_val = 0.0
+        observations.append({
+            "date": scene.acquisition_time.isoformat(),
+            "scene_id": scene.scene_id,
+            "value": round(index_val, 4),
+            "cloud_pct": scene.cloud_info.cloud_pct,
+            "confidence": obs.confidence,
+            "integrity_state": obs.integrity_state.value,
+        })
+
+    observations.sort(key=lambda x: x["date"])
+
+    values = [o["value"] for o in observations]
+    stats = {}
+    if values:
+        import statistics
+        stats = {
+            "count": len(values),
+            "mean": round(statistics.mean(values), 4),
+            "median": round(statistics.median(values), 4),
+            "stdev": round(statistics.stdev(values), 4) if len(values) > 1 else 0.0,
+            "min": round(min(values), 4),
+            "max": round(max(values), 4),
+        }
+
+    return {
+        "index": req.index,
+        "provider": req.provider,
+        "dataset": req.dataset,
+        "aoi_name": req.aoi_name,
+        "start_date": start_dt.isoformat(),
+        "end_date": end_dt.isoformat(),
+        "observations": observations,
+        "statistics": stats,
+        "total_scenes_found": search_result.total_count,
+        "integrity_state": search_result.integrity_state.value if search_result.integrity_state else "DATA_AVAILABLE",
+        "uncertainty": "Index values computed from observation metadata. Not per-pixel raster computation.",
+    }

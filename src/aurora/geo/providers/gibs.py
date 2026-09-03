@@ -49,7 +49,7 @@ _GIBS_DATASETS = {
         temporal_resolution_hours=24.0,
         bands=("Red", "Green", "Blue"),
     ),
-    " Landsat_WELD_CorrectedReflectance_TrueColor_Global_Monthly": GeoDatasetInfo(
+    "Landsat_WELD_CorrectedReflectance_TrueColor_Global_Monthly": GeoDatasetInfo(
         dataset_id="Landsat_WELD_CorrectedReflectance_TrueColor_Global_Monthly",
         name="Landsat WELD Monthly",
         description="Monthly Landsat composites, 30m",
