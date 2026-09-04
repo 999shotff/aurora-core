@@ -470,6 +470,35 @@ const ResearchWorkspace: React.FC = () => {
                     <EquityCurve curve={result.equity_curve} timestamps={result.timestamps} />
                   </div>
                 )}
+
+                <div style={{ ...styles.panel, marginTop: '16px' }}>
+                  <h3 style={{ color: '#c9d1d9', fontSize: '14px', marginBottom: '12px' }}>GEO EVIDENCE</h3>
+                  <div style={{ padding: '12px', background: 'rgba(240, 136, 62, 0.08)', borderRadius: '8px', fontSize: '12px', color: '#f0883e', marginBottom: '12px' }}>
+                    ⚠ Geo evidence requires valid spectral bands (NIR/SWIR). GIBS provides RGB visualization imagery only. No valid geo observations available.
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '8px' }}>
+                    <div style={{ padding: '8px', background: 'rgba(1,4,9,0.4)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: '#8b949e' }}>Provider</div>
+                      <div style={{ fontSize: '12px', color: '#c9d1d9' }}>nasa_gibs</div>
+                    </div>
+                    <div style={{ padding: '8px', background: 'rgba(1,4,9,0.4)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: '#8b949e' }}>Status</div>
+                      <div style={{ fontSize: '12px', color: '#f0883e' }}>DATA_UNAVAILABLE</div>
+                    </div>
+                    <div style={{ padding: '8px', background: 'rgba(1,4,9,0.4)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: '#8b949e' }}>Reason</div>
+                      <div style={{ fontSize: '12px', color: '#c9d1d9' }}>RGB visualization only, no NIR/SWIR</div>
+                    </div>
+                    <div style={{ padding: '8px', background: 'rgba(1,4,9,0.4)', borderRadius: '6px' }}>
+                      <div style={{ fontSize: '10px', color: '#8b949e' }}>Classification</div>
+                      <div style={{ fontSize: '12px', color: '#c9d1d9' }}>OBSERVATION</div>
+                    </div>
+                  </div>
+                  <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(1,4,9,0.4)', borderRadius: '6px', fontSize: '11px', color: '#8b949e' }}>
+                    <strong>M26 Integration:</strong> Geo evidence is evidence, not a trading recommendation.
+                    NO_DEPLOYMENT_SIGNAL preserved. NO_PREDICTIONS. NO_TRADING_SIGNALS.
+                  </div>
+                </div>
               </>
             )}
           </div>

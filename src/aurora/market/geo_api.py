@@ -318,9 +318,8 @@ def get_observations(body: dict) -> dict:
 def detect_change(body: dict) -> dict:
     """Detect change between two observations."""
     from pydantic import BaseModel, Field
-    from aurora.geo.domain import AOI, BoundingBox, GeoScene, CloudInfo, GeoQualityReport, GeoQualityGrade, GeoProvenance
-    from aurora.geo.features.indices import DerivedFeature
-    from aurora.geo.analysis.change import detect_change
+    from aurora.geo.domain import AOI, BoundingBox
+    from aurora.geo.features.index_engine import compute_index as compute_pixel_index
 
     class ChangeRequest(BaseModel):
         aoi_name: str = "default"
@@ -332,11 +331,7 @@ def detect_change(body: dict) -> dict:
         dataset: str = ""
         before_time: str
         after_time: str
-        before_bands: list[str] = Field(default_factory=lambda: ["B03", "B04", "B08"])
-        after_bands: list[str] = Field(default_factory=lambda: ["B03", "B04", "B08"])
-        before_values: dict[str, float] = Field(default_factory=dict)
-        after_values: dict[str, float] = Field(default_factory=dict)
-        feature: str = "NDVI"
+        index: str = "NDVI"
         threshold: float = 0.1
 
     try:
@@ -353,70 +348,114 @@ def detect_change(body: dict) -> dict:
     except ValueError:
         raise HTTPException(status_code=422, detail="Invalid date format")
 
-    feature_enum = DerivedFeature(req.feature)
+    provider = registry.get(req.provider)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{req.provider}' not found")
 
-    before_scene = GeoScene(
-        scene_id=f"before_{req.aoi_name}",
-        provider=req.provider,
-        dataset=req.dataset,
-        acquisition_time=before_dt,
-        bbox=bbox,
-        bands=tuple(req.before_bands),
-        quality=GeoQualityReport(grade=GeoQualityGrade.GOOD),
-        provenance=GeoProvenance(provider=req.provider, dataset=req.dataset, acquisition_time=before_dt),
-    )
-    after_scene = GeoScene(
-        scene_id=f"after_{req.aoi_name}",
-        provider=req.provider,
-        dataset=req.dataset,
-        acquisition_time=after_dt,
-        bbox=bbox,
-        bands=tuple(req.after_bands),
-        quality=GeoQualityReport(grade=GeoQualityGrade.GOOD),
-        provenance=GeoProvenance(provider=req.provider, dataset=req.dataset, acquisition_time=after_dt),
-    )
+    before_raster = None
+    after_raster = None
+    before_tile_url = None
+    after_tile_url = None
 
-    from aurora.geo.domain import GeoObservation
+    if hasattr(provider, 'download_tile'):
+        before_raster = provider.download_tile(req.dataset, aoi, before_dt)
+        after_raster = provider.download_tile(req.dataset, aoi, after_dt)
+        if before_raster:
+            before_tile_url = provider._build_tile_url(req.dataset, aoi, before_dt)
+        if after_raster:
+            after_tile_url = provider._build_tile_url(req.dataset, aoi, after_dt)
 
-    before_obs = GeoObservation(
-        observation_id=f"obs_before_{req.aoi_name}",
-        scene=before_scene,
-        aoi=aoi,
-        derived_values=req.before_values,
-        confidence=0.9,
-    )
-    after_obs = GeoObservation(
-        observation_id=f"obs_after_{req.aoi_name}",
-        scene=after_scene,
-        aoi=aoi,
-        derived_values=req.after_values,
-        confidence=0.9,
-    )
-
-    result = detect_change(before_obs, after_obs, feature=feature_enum, threshold=req.threshold)
-
-    if result.change is None:
+    if before_raster is None or after_raster is None:
+        missing = []
+        if before_raster is None: missing.append("before")
+        if after_raster is None: missing.append("after")
         return {
             "change_detected": False,
-            "integrity_state": result.integrity_state.value,
-            "error": result.error,
+            "integrity_state": "DATA_UNAVAILABLE",
+            "error": f"Could not download raster tiles for {', '.join(missing)} date(s)",
+            "baseline_scene": {"date": before_dt.isoformat(), "tile_url": before_tile_url},
+            "comparison_scene": {"date": after_dt.isoformat(), "tile_url": after_tile_url},
         }
 
-    c = result.change
+    try:
+        before_idx = compute_pixel_index(before_raster, req.index, dataset=req.dataset)
+        after_idx = compute_pixel_index(after_raster, req.index, dataset=req.dataset)
+    except Exception as exc:
+        return {
+            "change_detected": False,
+            "integrity_state": "PROCESSING_FAILED",
+            "error": f"Index computation failed: {exc}",
+        }
+
+    if not before_idx.supported or not after_idx.supported:
+        errors = []
+        if not before_idx.supported: errors.append(f"before: {before_idx.error}")
+        if not after_idx.supported: errors.append(f"after: {after_idx.error}")
+        return {
+            "change_detected": False,
+            "integrity_state": "DATA_UNAVAILABLE",
+            "error": f"Required spectral bands unavailable. {'; '.join(errors)}",
+            "baseline_scene": {
+                "date": before_dt.isoformat(),
+                "index": req.index,
+                "supported": before_idx.supported,
+                "integrity_state": before_idx.integrity_state.value,
+                "error": before_idx.error,
+                "tile_url": before_tile_url,
+            },
+            "comparison_scene": {
+                "date": after_dt.isoformat(),
+                "index": req.index,
+                "supported": after_idx.supported,
+                "integrity_state": after_idx.integrity_state.value,
+                "error": after_idx.error,
+                "tile_url": after_tile_url,
+            },
+        }
+
+    import numpy as np
+    diff = after_idx.data - before_idx.data
+    valid_diff = diff[~np.isnan(diff)]
+    magnitude = float(np.mean(np.abs(valid_diff))) if len(valid_diff) > 0 else 0.0
+    change_detected = magnitude > req.threshold
+
+    affected_pixels = int(np.sum(np.abs(valid_diff) > req.threshold)) if len(valid_diff) > 0 else 0
+    total_valid = int(np.sum(~np.isnan(diff)))
+    affected_area_pct = round(affected_pixels / total_valid * 100, 2) if total_valid > 0 else 0.0
+
     return {
-        "change_detected": c.change_type.value != "no_change",
-        "change_id": c.change_id,
-        "change_type": c.change_type.value,
-        "feature": c.derived_feature,
-        "magnitude": c.magnitude,
-        "confidence": c.confidence,
-        "integrity_state": c.integrity_state.value,
-        "methodology": c.methodology,
-        "methodology_version": c.methodology_version,
-        "before_date": c.before.acquisition_timestamp.isoformat(),
-        "after_date": c.after.acquisition_timestamp.isoformat(),
-        "uncertainty": c.uncertainty,
-        "notes": c.notes,
+        "change_detected": change_detected,
+        "integrity_state": "DATA_AVAILABLE" if change_detected else "NO_CHANGE",
+        "index": req.index,
+        "baseline_scene": {
+            "date": before_dt.isoformat(),
+            "tile_url": before_tile_url,
+            "mean": round(float(before_idx.mean), 4),
+            "std": round(float(before_idx.std), 4),
+            "valid_count": before_idx.valid_count,
+        },
+        "comparison_scene": {
+            "date": after_dt.isoformat(),
+            "tile_url": after_tile_url,
+            "mean": round(float(after_idx.mean), 4),
+            "std": round(float(after_idx.std), 4),
+            "valid_count": after_idx.valid_count,
+        },
+        "change_statistics": {
+            "magnitude": round(magnitude, 4),
+            "threshold": req.threshold,
+            "affected_area_pct": affected_area_pct,
+            "affected_pixels": affected_pixels,
+            "total_valid_pixels": total_valid,
+        },
+        "methodology": f"Pixel-wise {req.index} difference on real raster tiles",
+        "uncertainty": (
+            "GIBS provides RGB visualization imagery only. "
+            "Scientific change detection requires NIR/SWIR bands. "
+            "Change computed on visualization channels, not scientific spectral data."
+            if not before_idx.supported else
+            "Change computed from real raster tiles with valid spectral bands."
+        ),
     }
 
 
@@ -473,39 +512,73 @@ def get_timeseries(body: dict) -> dict:
         page_size=50,
     )
 
+    from aurora.geo.features.index_engine import compute_index as compute_pixel_index
+
     observations = []
     for scene in search_result.scenes[:30]:
-        obs = provider.get_observation(scene, aoi)
-        index_val = obs.derived_values.get(f"{req.index.lower()}_mean")
-        if index_val is None:
-            band_vals = {k: v for k, v in obs.derived_values.items() if k.startswith("band_")}
-            if band_vals:
-                vals = list(band_vals.values())
-                index_val = sum(vals) / len(vals) if vals else 0.0
-            else:
-                index_val = 0.0
+        raster_scene = None
+        if hasattr(provider, 'download_tile'):
+            raster_scene = provider.download_tile(req.dataset, aoi, scene.acquisition_time)
+
+        if raster_scene is not None:
+            try:
+                idx_result = compute_pixel_index(raster_scene, req.index, dataset=req.dataset)
+                obs_value = round(float(idx_result.mean), 4) if idx_result.supported else None
+                obs_state = idx_result.integrity_state.value
+                obs_methodology = f"Per-pixel {req.index} from raster bands: {', '.join(idx_result.source_bands)}"
+                obs_bands_used = list(idx_result.source_bands)
+                obs_formula = idx_result.formula
+                obs_error = idx_result.error
+            except Exception as exc:
+                obs_value = None
+                obs_state = "PROCESSING_FAILED"
+                obs_methodology = f"Index computation failed: {exc}"
+                obs_bands_used = []
+                obs_formula = ""
+                obs_error = str(exc)
+        else:
+            obs_value = None
+            obs_state = "DATA_UNAVAILABLE"
+            obs_methodology = "Tile download failed or unavailable"
+            obs_bands_used = []
+            obs_formula = ""
+            obs_error = "Could not download raster tile"
+
         observations.append({
             "date": scene.acquisition_time.isoformat(),
             "scene_id": scene.scene_id,
-            "value": round(index_val, 4),
+            "product_id": getattr(scene, 'product_id', scene.scene_id),
+            "index": req.index,
+            "value": obs_value,
+            "integrity_state": obs_state,
+            "resolution_m": scene.resolution_m,
+            "bands_used": obs_bands_used,
+            "formula": obs_formula,
+            "methodology": obs_methodology,
+            "quality": scene.quality_grade,
             "cloud_pct": scene.cloud_info.cloud_pct,
-            "confidence": obs.confidence,
-            "integrity_state": obs.integrity_state.value,
+            "error": obs_error,
+            "uncertainty": (
+                "GIBS provides RGB visualization imagery only. "
+                "Scientific spectral indices (NDVI/NDWI/NDBI/EVI) require Near-Infrared or "
+                "Short-Wave Infrared bands which are not available in true-color composites."
+                if obs_state == "DATA_UNAVAILABLE" and "NIR" in (obs_error or "") else ""
+            ),
         })
 
     observations.sort(key=lambda x: x["date"])
 
-    values = [o["value"] for o in observations]
+    valid_values = [o["value"] for o in observations if o["value"] is not None]
     stats = {}
-    if values:
+    if valid_values:
         import statistics
         stats = {
-            "count": len(values),
-            "mean": round(statistics.mean(values), 4),
-            "median": round(statistics.median(values), 4),
-            "stdev": round(statistics.stdev(values), 4) if len(values) > 1 else 0.0,
-            "min": round(min(values), 4),
-            "max": round(max(values), 4),
+            "count": len(valid_values),
+            "mean": round(statistics.mean(valid_values), 4),
+            "median": round(statistics.median(valid_values), 4),
+            "stdev": round(statistics.stdev(valid_values), 4) if len(valid_values) > 1 else 0.0,
+            "min": round(min(valid_values), 4),
+            "max": round(max(valid_values), 4),
         }
 
     return {
@@ -516,10 +589,26 @@ def get_timeseries(body: dict) -> dict:
         "start_date": start_dt.isoformat(),
         "end_date": end_dt.isoformat(),
         "observations": observations,
+        "missing_dates": [],
         "statistics": stats,
         "total_scenes_found": search_result.total_count,
         "integrity_state": search_result.integrity_state.value if search_result.integrity_state else "DATA_AVAILABLE",
-        "uncertainty": "Index values computed from observation metadata. Not per-pixel raster computation.",
+        "uncertainty": (
+            "Time series computed from real raster tiles. "
+            "GIBS provides RGB visualization imagery only. "
+            "Scientific spectral indices require NIR/SWIR bands unavailable in true-color composites. "
+            "Valid values: None. All observations are DATA_UNAVAILABLE for scientific indices."
+            if not valid_values else
+            "Time series computed from real raster tiles with valid spectral bands."
+        ),
+        "provenance": {
+            "provider": req.provider,
+            "dataset": req.dataset,
+            "index": req.index,
+            "methodology": f"Per-pixel {req.index} from raster data",
+            "source": "gibs.earthdata.nasa.gov" if req.provider == "nasa_gibs" else req.provider,
+            "is_demo": req.provider == "nasa_gibs",
+        },
     }
 
 

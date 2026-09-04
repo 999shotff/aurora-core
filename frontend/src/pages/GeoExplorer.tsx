@@ -620,12 +620,30 @@ const GeoExplorer: React.FC = () => {
                           <span style={styles.indexName}>{idx.name}</span>
                           <IntegrityBadge state={idx.integrity_state} />
                         </div>
-                        <div style={styles.indexValue}>{idx.supported ? fmtVal(idx.mean) : 'UNSUPPORTED'}</div>
+                        <div style={styles.indexValue}>
+                          {idx.supported ? fmtVal(idx.mean) : (
+                            idx.integrity_state === 'DATA_UNAVAILABLE' ? 'DATA_UNAVAILABLE' :
+                            idx.integrity_state === 'AUTH_REQUIRED' ? 'AUTH_REQUIRED' :
+                            idx.integrity_state === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' :
+                            'UNSUPPORTED'
+                          )}
+                        </div>
                         <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '4px' }}>
-                          Formula: {idx.formula}<br />
-                          Bands: {idx.source_bands.join(', ')}<br />
-                          Valid pixels: {idx.valid_count.toLocaleString()} / {idx.total_count.toLocaleString()}<br />
-                          {idx.uncertainty && <span style={{ color: '#f0883e' }}>⚠ {idx.uncertainty}</span>}
+                          {idx.formula && <>Formula: {idx.formula}<br /></>}
+                          {idx.source_bands.length > 0 && <>Bands: {idx.source_bands.join(', ')}<br /></>}
+                          {idx.valid_count > 0 && <>Valid pixels: {idx.valid_count.toLocaleString()} / {idx.total_count.toLocaleString()}<br /></>}
+                          {idx.integrity_state === 'DATA_UNAVAILABLE' && (
+                            <span style={{ color: '#f0883e' }}>
+                              ⚠ Required spectral bands unavailable from selected source.
+                              GIBS provides RGB visualization imagery only.
+                            </span>
+                          )}
+                          {idx.integrity_state === 'AUTH_REQUIRED' && (
+                            <span style={{ color: '#f0883e' }}>⚠ Authentication required for this provider.</span>
+                          )}
+                          {idx.uncertainty && idx.integrity_state !== 'DATA_UNAVAILABLE' && (
+                            <span style={{ color: '#f0883e' }}>⚠ {idx.uncertainty}</span>
+                          )}
                         </div>
                       </div>
                     ))
@@ -669,7 +687,7 @@ const GeoExplorer: React.FC = () => {
                 <div>
                   {timeSeries ? (
                     <div>
-                      {timeSeries.statistics && (
+                      {timeSeries.statistics && Object.keys(timeSeries.statistics).length > 0 && (
                         <div style={styles.metricGrid}>
                           <div style={styles.metricCard}>
                             <div style={styles.metricValue}>{timeSeries.statistics.count}</div>
@@ -689,12 +707,23 @@ const GeoExplorer: React.FC = () => {
                           </div>
                         </div>
                       )}
+                      {!timeSeries.statistics || Object.keys(timeSeries.statistics).length === 0 ? (
+                        <div style={{ padding: '12px', background: 'rgba(240, 136, 62, 0.08)', borderRadius: '8px', fontSize: '12px', color: '#f0883e' }}>
+                          ⚠ No valid index values in time series.
+                          GIBS provides RGB visualization imagery only.
+                          Scientific spectral indices require NIR/SWIR bands.
+                        </div>
+                      ) : null}
                       <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                        {timeSeries.observations.map((pt, i) => (
+                        {timeSeries.observations.map((pt: Record<string, unknown>, i: number) => (
                           <div key={i} style={styles.timePoint}>
-                            <span>{new Date(pt.date).toLocaleDateString()}</span>
-                            <span style={{ color: '#26a69a', fontWeight: 600 }}>{pt.value.toFixed(4)}</span>
-                            <span style={{ color: '#8b949e' }}>{(pt.confidence * 100).toFixed(0)}%</span>
+                            <span>{new Date(pt.date as string).toLocaleDateString()}</span>
+                            <span style={{ color: pt.value != null ? '#26a69a' : '#f0883e', fontWeight: 600 }}>
+                              {pt.value != null ? (pt.value as number).toFixed(4) : 'DATA_UNAVAILABLE'}
+                            </span>
+                            <span style={{ color: '#8b949e', fontSize: '10px' }}>
+                              {(pt.integrity_state as string) || 'UNKNOWN'}
+                            </span>
                           </div>
                         ))}
                       </div>

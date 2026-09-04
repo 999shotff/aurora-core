@@ -35,18 +35,8 @@ DATASET_BAND_MAP = {
         "NDVI": {"nir": "25", "red": "1"},
         "NDWI": {"green": "6", "nir": "2"},
     },
-    "nasa_gibs": {
-        "NDVI": {"nir": "Red", "red": "Red"},
-        "NDWI": {"green": "Green", "nir": "Red"},
-        "NDBI": {"swir1": "Green", "nir": "Red"},
-        "EVI": {"nir": "Red", "red": "Red", "blue": "Blue"},
-    },
-    "MODIS_Terra_CorrectedReflectance_TrueColor": {
-        "NDVI": {"nir": "Red", "red": "Red"},
-        "NDWI": {"green": "Green", "nir": "Red"},
-        "NDBI": {"swir1": "Green", "nir": "Red"},
-        "EVI": {"nir": "Red", "red": "Red", "blue": "Blue"},
-    },
+    "nasa_gibs": {},
+    "MODIS_Terra_CorrectedReflectance_TrueColor": {},
 }
 
 
@@ -133,6 +123,36 @@ def _resolve_band(
     return None
 
 
+def _has_valid_spectral_band(
+    scene: RasterScene,
+    band_key: str,
+    band: RasterBand,
+    dataset: str = "S2L2A",
+) -> bool:
+    """Check if a resolved band actually matches the required spectral range.
+
+    GIBS RGB visualization channels (Red/Green/Blue) are NOT scientific spectral bands.
+    NDVI requires Near-Infrared (NIR), not visible red.
+    NDBI requires Short-Wave Infrared (SWIR), not visible green.
+    """
+    visible_bands = {"Red", "Green", "Blue", "red", "green", "blue"}
+    nir_aliases = {"nir", "NIR", "B08", "B8", "B05", "B5"}
+    swir_aliases = {"swir1", "SWIR1", "B11", "B11A", "B12", "B12A"}
+
+    dataset_map = DATASET_BAND_MAP.get(dataset, {})
+    mapped_name = None
+    for index_map in dataset_map.values():
+        if isinstance(index_map, dict) and band_key in index_map:
+            mapped_name = index_map[band_key]
+            break
+
+    if mapped_name is None and band.name in visible_bands:
+        if band_key.lower() in ("nir", "swir1", "swir2"):
+            return False
+
+    return True
+
+
 def compute_ndvi(
     scene: RasterScene,
     dataset: str = "S2L2A",
@@ -159,6 +179,23 @@ def compute_ndvi(
             formula="(NIR - RED) / (NIR + RED)",
             source_bands=tuple(missing),
             error=f"Missing bands: {missing}. Available: {list(scene.bands.keys())}",
+        )
+
+    if not _has_valid_spectral_band(scene, "nir", nir_band, dataset):
+        return IndexResult(
+            name="NDVI",
+            data=np.array([]),
+            valid_count=0, total_count=0,
+            mean=np.nan, std=np.nan, min_val=np.nan, max_val=np.nan,
+            supported=False,
+            integrity_state=GeoIntegrityState.DATA_UNAVAILABLE,
+            formula="(NIR - RED) / (NIR + RED)",
+            source_bands=(nir_band.name, red_band.name),
+            error=(
+                f"Required spectral band NIR (Near-Infrared) unavailable from source. "
+                f"Resolved to '{nir_band.name}' which is not a valid NIR band. "
+                f"GIBS provides RGB visualization imagery only, not scientific spectral data."
+            ),
         )
 
     nir = nir_band.data
@@ -211,6 +248,23 @@ def compute_ndwi(
             error=f"Missing bands: {missing}",
         )
 
+    if not _has_valid_spectral_band(scene, "nir", nir_band, dataset):
+        return IndexResult(
+            name="NDWI",
+            data=np.array([]),
+            valid_count=0, total_count=0,
+            mean=np.nan, std=np.nan, min_val=np.nan, max_val=np.nan,
+            supported=False,
+            integrity_state=GeoIntegrityState.DATA_UNAVAILABLE,
+            formula="(GREEN - NIR) / (GREEN + NIR)",
+            source_bands=(green_band.name, nir_band.name),
+            error=(
+                f"Required spectral band NIR (Near-Infrared) unavailable from source. "
+                f"Resolved to '{nir_band.name}' which is not a valid NIR band. "
+                f"GIBS provides RGB visualization imagery only, not scientific spectral data."
+            ),
+        )
+
     green = green_band.data
     nir = nir_band.data
     ndwi = _safe_divide(green - nir, green + nir)
@@ -255,6 +309,40 @@ def compute_ndbi(
             formula="(SWIR1 - NIR) / (SWIR1 + NIR)",
             source_bands=tuple(missing),
             error=f"Missing bands: {missing}",
+        )
+
+    if not _has_valid_spectral_band(scene, "swir1", swir_band, dataset):
+        return IndexResult(
+            name="NDBI",
+            data=np.array([]),
+            valid_count=0, total_count=0,
+            mean=np.nan, std=np.nan, min_val=np.nan, max_val=np.nan,
+            supported=False,
+            integrity_state=GeoIntegrityState.DATA_UNAVAILABLE,
+            formula="(SWIR1 - NIR) / (SWIR1 + NIR)",
+            source_bands=(swir_band.name, nir_band.name),
+            error=(
+                f"Required spectral band SWIR1 (Short-Wave Infrared) unavailable from source. "
+                f"Resolved to '{swir_band.name}' which is not a valid SWIR band. "
+                f"GIBS provides RGB visualization imagery only, not scientific spectral data."
+            ),
+        )
+
+    if not _has_valid_spectral_band(scene, "nir", nir_band, dataset):
+        return IndexResult(
+            name="NDBI",
+            data=np.array([]),
+            valid_count=0, total_count=0,
+            mean=np.nan, std=np.nan, min_val=np.nan, max_val=np.nan,
+            supported=False,
+            integrity_state=GeoIntegrityState.DATA_UNAVAILABLE,
+            formula="(SWIR1 - NIR) / (SWIR1 + NIR)",
+            source_bands=(swir_band.name, nir_band.name),
+            error=(
+                f"Required spectral band NIR (Near-Infrared) unavailable from source. "
+                f"Resolved to '{nir_band.name}' which is not a valid NIR band. "
+                f"GIBS provides RGB visualization imagery only, not scientific spectral data."
+            ),
         )
 
     swir = swir_band.data
@@ -306,6 +394,23 @@ def compute_evi(
             formula="G * (NIR - RED) / (NIR + C1*RED - C2*BLUE + L)",
             source_bands=tuple(missing),
             error=f"Missing bands: {missing}",
+        )
+
+    if not _has_valid_spectral_band(scene, "nir", nir_band, dataset):
+        return IndexResult(
+            name="EVI",
+            data=np.array([]),
+            valid_count=0, total_count=0,
+            mean=np.nan, std=np.nan, min_val=np.nan, max_val=np.nan,
+            supported=False,
+            integrity_state=GeoIntegrityState.DATA_UNAVAILABLE,
+            formula="G * (NIR - RED) / (NIR + C1*RED - C2*BLUE + L)",
+            source_bands=(nir_band.name, red_band.name, blue_band.name),
+            error=(
+                f"Required spectral band NIR (Near-Infrared) unavailable from source. "
+                f"Resolved to '{nir_band.name}' which is not a valid NIR band. "
+                f"GIBS provides RGB visualization imagery only, not scientific spectral data."
+            ),
         )
 
     nir = nir_band.data

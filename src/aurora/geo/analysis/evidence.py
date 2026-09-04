@@ -45,6 +45,11 @@ def observation_to_evidence(observation: GeoObservation) -> EvidenceItem:
     if observation.scene.cloud_info.cloud_pct > 30:
         cloud_note = f" High cloud cover ({observation.scene.cloud_info.cloud_pct:.0f}%) reduces confidence."
 
+    integrity_note = ""
+    if observation.integrity_state == GeoIntegrityState.DATA_UNAVAILABLE:
+        integrity_note = " DATA_UNAVAILABLE: Required spectral bands not provided by source."
+        strength = EvidenceStrength.ABSENT
+
     return EvidenceItem(
         domain="geospatial",
         classification=ResearchClassification.OBSERVATION,
@@ -57,8 +62,65 @@ def observation_to_evidence(observation: GeoObservation) -> EvidenceItem:
             f"Resolution: {observation.scene.resolution_m:.0f}m. "
             f"Cloud: {observation.scene.cloud_info.cloud_pct:.1f}%."
             f"{cloud_note}"
+            f"{integrity_note}"
         ),
         source_indicator=f"satellite_observation_{observation.source}",
+    )
+
+
+def index_observation_to_evidence(
+    provider: str,
+    scene_id: str,
+    index: str,
+    value: float | None,
+    integrity_state: str,
+    bands_used: list[str],
+    formula: str,
+    methodology: str,
+    uncertainty: str,
+    acquisition_time: str,
+    aoi_name: str,
+) -> EvidenceItem:
+    """Create EvidenceItem from index computation result.
+
+    This bridges the new API response format to M26 evidence.
+    """
+    if integrity_state == "DATA_UNAVAILABLE":
+        strength = EvidenceStrength.ABSENT
+        polarity = EvidencePolarity.UNAVAILABLE
+        value_str = f"{index} DATA_UNAVAILABLE"
+        desc = (
+            f"Index {index} computation for {provider} scene {scene_id}: "
+            f"DATA_UNAVAILABLE. {uncertainty}"
+        )
+    elif integrity_state == "PROCESSING_FAILED":
+        strength = EvidenceStrength.ABSENT
+        polarity = EvidencePolarity.UNAVAILABLE
+        value_str = f"{index} PROCESSING_FAILED"
+        desc = f"Index {index} computation failed for {provider} scene {scene_id}."
+    elif value is not None:
+        strength = EvidenceStrength.MODERATE
+        polarity = EvidencePolarity.NEUTRAL
+        value_str = f"{index}={value:.4f}"
+        desc = (
+            f"Index {index} for {provider} scene {scene_id}: {value:.4f}. "
+            f"Formula: {formula}. Bands: {', '.join(bands_used)}. "
+            f"Methodology: {methodology}."
+        )
+    else:
+        strength = EvidenceStrength.ABSENT
+        polarity = EvidencePolarity.UNAVAILABLE
+        value_str = f"{index} NO_VALUE"
+        desc = f"Index {index} produced no value for {provider} scene {scene_id}."
+
+    return EvidenceItem(
+        domain="geospatial",
+        classification=ResearchClassification.OBSERVATION,
+        polarity=polarity,
+        strength=strength,
+        value=value_str,
+        description=desc,
+        source_indicator=f"geo_index_{provider}_{index}",
     )
 
 

@@ -14,4 +14,12 @@ https://github.com/tradytics/surpriver.git
 
 https://github.com/aws/context-ontology-accelerator.git
 
+m29 is going on now and i have researched more further i found GeoOSINT I think it would be good for this project 
 
+https://systemsdigest.com/posts/free-satellite-imagery-machine-learning-and-big-data-pipelines 
+bilawalsidhu/gods-eye-view.git 
+
+https://explainx.ai/blog/gods-eye-view-open-source-spy-satellite-simulator-august-2026 
+nasa-gibs/worldview.git 
+
+Google Earth Engine (GEE) Copernicus Data Space Ecosystem / Browser
