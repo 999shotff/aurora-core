@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from './types';
-import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo, INDICATOR_GROUPS } from './services/data';
+import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo } from './services/data';
 import { MarketStreamService, type ConnectionState } from './services/stream';
 import { TopBar } from './components/TopBar';
 import { Watchlist } from './components/Watchlist';
@@ -17,10 +17,15 @@ import { ResearchWorkspace } from './pages/ResearchWorkspace';
 import { GeoExplorer } from './pages/GeoExplorer';
 import { AnalysisWorkspace } from './pages/AnalysisWorkspace';
 import { SettingsPage } from './pages/SettingsPage';
+import { CommandCenter } from './pages/CommandCenter';
+import { Intelligence } from './pages/Intelligence';
+import { Evidence } from './pages/Evidence';
+import { NeuralField } from './pages/NeuralField';
+import { Reports } from './pages/Reports';
 import { isIntradayTimeframe } from './lib/timeframes';
 import { saveIndicatorState, loadIndicatorState } from './lib/persistence';
 
-type Page = 'landing' | 'terminal' | 'explorer' | 'research' | 'workspace' | 'geo' | 'analysis' | 'settings';
+type Page = 'landing' | 'command' | 'market' | 'geo' | 'intelligence' | 'research' | 'evidence' | 'neuralfield' | 'reports' | 'workspace' | 'analysis' | 'settings';
 
 const REST_FALLBACK_INTERVAL = 60_000;
 
@@ -183,7 +188,7 @@ function App() {
 
   const handleSelectAsset = (symbol: string) => {
     setSelectedAsset(symbol);
-    setPage('terminal');
+    setPage('market');
   };
 
   const handleToggleIndicator = (id: string) => {
@@ -198,155 +203,52 @@ function App() {
   const handleParamUpdate = useCallback((indicatorId: string, paramId: string, value: number) => {
     setIndicatorParams(prev => ({
       ...prev,
-      [indicatorId]: { ...(prev[indicatorId] ?? {}), [paramId]: value },
+      [indicatorId]: { ...(prev[indicatorId] || {}), [paramId]: value },
     }));
   }, []);
 
-  const handleParamReset = useCallback((indicatorId: string) => {
-    setIndicatorParams(prev => {
-      const next = { ...prev };
-      delete next[indicatorId];
-      return next;
-    });
-  }, []);
-
-  const lastBar = bars[bars.length - 1];
-  const isIntraday = isIntradayTimeframe(selectedTimeframe);
-  const oscillatorIds = new Set(
-    INDICATOR_GROUPS.filter(g => !g.overlay).flatMap(g => g.subSeries)
-  );
-  const oscillatorSeries = overlays.filter(s => oscillatorIds.has(s.name));
-
-  if (page === 'landing') {
-    return (
-      <div style={styles.app}>
-        <LandingPage onNavigate={setPage as (page: string) => void} />
-      </div>
-    );
-  }
+  const showTerminal = page === 'market';
 
   return (
-    <div style={styles.app}>
-      <NavBar page={page} setPage={setPage} dataMode={dataMode} connectionState={connectionState} provider={connectionProviderRef.current} isDemo={dataSource.isDemo} />
-      {page === 'terminal' && (
-        <div style={styles.terminalLayout} className="terminal-layout">
-          <div style={styles.watchlistPanel} className="watchlist-panel">
-            <Watchlist selectedAsset={selectedAsset} onSelect={setSelectedAsset} />
-          </div>
-          <div style={styles.terminalMain}>
-            <TopBar
-              selectedAsset={selectedAsset}
-              selectedTimeframe={selectedTimeframe}
-              onAssetChange={setSelectedAsset}
-              onTimeframeChange={setSelectedTimeframe}
-              isDemo={dataSource.isDemo}
-              stale={dataSource.stale}
-              provider={dataSource.provider}
-            />
-            {loading ? (
-              <div style={styles.loadingState}>
-                <div style={styles.spinner} />
-                <span>Loading market data...</span>
+    <div style={styles.root}>
+      <NavBar page={page} setPage={setPage} dataMode={dataMode} connectionState={connectionState} provider={dataSource.provider} isDemo={dataSource.isDemo} />
+
+      <main style={styles.main}>
+        {page === 'landing' && <LandingPage onNavigate={(p) => setPage(p as Page)} />}
+        {page === 'command' && <CommandCenter onNavigate={(p) => setPage(p as Page)} />}
+        {page === 'market' && (
+          <div style={styles.terminalLayout}>
+            <aside style={styles.sidebar}>
+              <Watchlist onSelectAsset={handleSelectAsset} />
+            </aside>
+            <div style={styles.terminalMain}>
+              <TopBar symbol={selectedAsset} timeframe={selectedTimeframe} onTimeframeChange={setSelectedTimeframe} dataSource={dataSource} loading={loading} error={error} backendDown={backendDown} emptyData={emptyData} />
+              <div style={styles.chartArea}>
+                <PriceChart bars={bars} overlays={overlays} timeframe={selectedTimeframe} loading={loading} />
               </div>
-            ) : backendDown ? (
-              <div style={styles.backendDownState}>
-                <span style={styles.backendDownIcon}>⚠</span>
-                <span style={{ fontSize: 18, fontWeight: 700, color: '#f85149' }}>BACKEND UNAVAILABLE</span>
-                <span style={{ fontSize: 13, color: '#8b949e' }}>The market data service is not responding.</span>
-                <span style={{ fontSize: 12, color: '#8b949e' }}>Please check the backend or try again later.</span>
-                <button style={styles.retryBtn} onClick={() => loadData()}>Retry</button>
-              </div>
-            ) : error ? (
-              <div style={styles.errorState}>
-                <span style={styles.errorIcon}>!</span>
-                <span>{error}</span>
-                <button style={styles.retryBtn} onClick={() => loadData()}>Retry</button>
-              </div>
-            ) : emptyData ? (
-              <div style={styles.backendDownState}>
-                <span style={{ fontSize: 18, fontWeight: 700, color: '#f0883e' }}>NO DATA AVAILABLE</span>
-                <span style={{ fontSize: 13, color: '#8b949e' }}>The backend returned no valid bars for this asset/timeframe.</span>
-                <button style={styles.retryBtn} onClick={() => loadData()}>Retry</button>
-              </div>
-            ) : (
-              <>
-                <div style={styles.chartArea}>
-                  <PriceChart bars={bars} overlays={overlays.filter(s => !oscillatorIds.has(s.name))} panels={oscillatorSeries} structureEnabled={structureEnabled} isIntraday={isIntraday} />
+              <div style={styles.bottomPanels}>
+                <div style={styles.panelColumn}>
+                  <IndicatorSelector enabledIndicators={enabledIndicators} onToggle={handleToggleIndicator} indicatorParams={indicatorParams} onParamUpdate={handleParamUpdate} />
                 </div>
-                <div style={styles.dataBar}>
-                  {lastBar && (
-                    <>
-                      <span>O: {lastBar.open.toFixed(2)}</span>
-                      <span>H: {lastBar.high.toFixed(2)}</span>
-                      <span>L: {lastBar.low.toFixed(2)}</span>
-                      <span>C: {lastBar.close.toFixed(2)}</span>
-                      <span>Vol: {lastBar.volume.toLocaleString()}</span>
-                    </>
-                  )}
-                  <span style={{ marginLeft: 'auto', color: '#8b949e', fontSize: 10 }}>
-                    Research: NO_DEPLOYMENT_SIGNAL
-                  </span>
-                  <button
-                    onClick={() => setStructureEnabled(p => !p)}
-                    style={{
-                      background: structureEnabled ? 'rgba(38,166,154,0.2)' : 'none',
-                      border: '1px solid #21262d',
-                      color: structureEnabled ? '#26a69a' : '#8b949e',
-                      padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
-                      fontSize: 10, fontWeight: 600,
-                    }}
-                  >
-                    STRUCTURE {structureEnabled ? 'ON' : 'OFF'}
-                  </button>
-                  <button
-                    onClick={() => setContextEnabled(p => !p)}
-                    style={{
-                      background: contextEnabled ? 'rgba(33,150,243,0.2)' : 'none',
-                      border: '1px solid #21262d',
-                      color: contextEnabled ? '#2196F3' : '#8b949e',
-                      padding: '2px 8px', borderRadius: 4, cursor: 'pointer',
-                      fontSize: 10, fontWeight: 600,
-                    }}
-                  >
-                    CONTEXT {contextEnabled ? 'ON' : 'OFF'}
-                  </button>
+                <div style={styles.panelColumn}>
+                  <AnalysisPanel metrics={metrics} bars={bars} />
                 </div>
-              </>
-            )}
+                {structureEnabled && <div style={styles.panelColumn}><MarketStructurePanel bars={bars} /></div>}
+                {contextEnabled && <div style={styles.panelColumn}><MarketContextPanel symbol={selectedAsset} bars={bars} dataSource={dataSource} /></div>}
+              </div>
+            </div>
           </div>
-          <div style={styles.analysisPanel} className="analysis-panel">
-            <AnalysisPanel
-              metrics={metrics}
-              symbol={selectedAsset}
-              isDemo={dataSource.isDemo}
-              stale={dataSource.stale}
-              provider={dataSource.provider}
-              activeOverlays={overlays}
-            />
-          </div>
-          <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} indicatorParams={indicatorParams} onParamUpdate={handleParamUpdate} onParamReset={handleParamReset} />
-          <MarketStructurePanel bars={bars} enabled={structureEnabled} />
-          <MarketContextPanel asset={selectedAsset} timeframe={selectedTimeframe} bars={bars} visible={contextEnabled} />
-        </div>
-      )}
-      {page === 'explorer' && (
-        <AssetExplorer onSelectAsset={handleSelectAsset} />
-      )}
-      {page === 'research' && (
-        <ResearchLab />
-      )}
-      {page === 'workspace' && (
-        <ResearchWorkspace />
-      )}
-      {page === 'geo' && (
-        <GeoExplorer />
-      )}
-      {page === 'analysis' && (
-        <AnalysisWorkspace symbol={selectedAsset} bars={bars} />
-      )}
-      {page === 'settings' && (
-        <SettingsPage dataMode={dataMode} onDataModeChange={handleDataModeChange} />
-      )}
+        )}
+        {page === 'geo' && <GeoExplorer />}
+        {page === 'intelligence' && <Intelligence symbol={selectedAsset} />}
+        {page === 'research' && <ResearchLab />}
+        {page === 'evidence' && <Evidence />}
+        {page === 'neuralfield' && <NeuralField />}
+        {page === 'reports' && <Reports />}
+        {page === 'workspace' && <ResearchWorkspace />}
+        {page === 'analysis' && <AnalysisWorkspace symbol={selectedAsset} bars={bars} />}
+        {page === 'settings' && <SettingsPage dataMode={dataMode} onDataModeChange={handleDataModeChange} />}
+      </main>
     </div>
   );
 }
@@ -359,16 +261,28 @@ const NavBar: React.FC<{
   provider: string;
   isDemo: boolean;
 }> = ({ page, setPage, dataMode, connectionState, provider, isDemo }) => {
-  const links: { id: Page; label: string }[] = [
-    { id: 'landing', label: 'Home' },
-    { id: 'terminal', label: 'Terminal' },
-    { id: 'explorer', label: 'Explorer' },
-    { id: 'research', label: 'Research' },
-    { id: 'workspace', label: 'Workspace' },
-    { id: 'geo', label: 'GEO' },
-    { id: 'analysis', label: 'Analysis' },
-    { id: 'settings', label: 'Settings' },
+  const sections = [
+    { label: 'COMMAND', items: [{ id: 'command' as Page, label: 'Command Center' }] },
+    { label: 'OBSERVE', items: [
+      { id: 'market' as Page, label: 'Market Observatory' },
+      { id: 'geo' as Page, label: 'Geo Observatory' },
+    ]},
+    { label: 'ANALYZE', items: [
+      { id: 'intelligence' as Page, label: 'Intelligence' },
+      { id: 'research' as Page, label: 'Research' },
+      { id: 'evidence' as Page, label: 'Evidence' },
+    ]},
+    { label: 'VISUALIZE', items: [
+      { id: 'neuralfield' as Page, label: 'Neural Field' },
+    ]},
+    { label: 'OUTPUT', items: [
+      { id: 'reports' as Page, label: 'Reports' },
+    ]},
+    { label: 'SYSTEM', items: [
+      { id: 'settings' as Page, label: 'Settings' },
+    ]},
   ];
+
   return (
     <nav style={styles.nav}>
       <div style={styles.navBrand}>
@@ -379,45 +293,182 @@ const NavBar: React.FC<{
         </span>
         <ConnectionStatus state={connectionState} provider={provider} isDemo={isDemo} />
       </div>
-      <div style={styles.navLinks}>
-        {links.map(l => (
-          <button
-            key={l.id}
-            onClick={() => setPage(l.id)}
-            style={page === l.id ? styles.navLinkActive : styles.navLink}
-          >
-            {l.label}
-          </button>
+      <div style={styles.navSections}>
+        {sections.map(section => (
+          <div key={section.label} style={styles.navSection}>
+            <div style={styles.navSectionLabel}>{section.label}</div>
+            <div style={styles.navSectionItems}>
+              {section.items.map(item => (
+                <button
+                  key={item.id}
+                  onClick={() => setPage(item.id)}
+                  style={page === item.id ? styles.navLinkActive : styles.navLink}
+                >
+                  {item.label}
+                </button>
+              ))}
+            </div>
+          </div>
         ))}
       </div>
+      <button onClick={() => setPage('landing')} style={styles.navHomeBtn}>Home</button>
     </nav>
   );
 };
 
 const styles: Record<string, React.CSSProperties> = {
-  app: { display: 'flex', flexDirection: 'column', height: '100vh', background: '#010409', color: '#f0f6fc', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif', overflow: 'hidden' },
-  nav: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '0 20px', height: 48, background: 'rgba(13,17,23,0.8)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #21262d', flexShrink: 0 },
-  navBrand: { display: 'flex', alignItems: 'center', gap: 10 },
-  navLogo: { width: 28, height: 28, borderRadius: 6, background: 'linear-gradient(135deg, #26a69a, #2196F3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 900, color: '#fff' },
-  navTitle: { fontSize: 14, fontWeight: 700, letterSpacing: 0.5 },
-  navLinks: { display: 'flex', gap: 4 },
-  navLink: { background: 'none', border: 'none', color: '#8b949e', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 500, transition: 'all 0.15s' },
-  navLinkActive: { background: 'rgba(38,166,154,0.15)', border: 'none', color: '#26a69a', padding: '6px 12px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
-  liveModeBadge: { fontSize: 9, background: '#26a69a', color: '#000', padding: '2px 8px', borderRadius: 4, fontWeight: 800, letterSpacing: 0.5 },
-  demoModeBadge: { fontSize: 9, background: '#f0883e', color: '#000', padding: '2px 8px', borderRadius: 4, fontWeight: 800, letterSpacing: 0.5 },
-  terminalLayout: { display: 'flex', flex: 1, overflow: 'hidden' },
-  watchlistPanel: { display: 'flex', flexShrink: 0 },
-  terminalMain: { flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 },
-  analysisPanel: { display: 'flex', flexShrink: 0 },
-  chartArea: { flex: 1, overflow: 'hidden', minHeight: 0 },
-  dataBar: { display: 'flex', gap: 16, padding: '6px 16px', background: '#0d1117', borderTop: '1px solid #21262d', fontSize: 12, color: '#8b949e', fontFamily: 'monospace', alignItems: 'center', flexShrink: 0 },
-  loadingState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#8b949e' },
-  errorState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#f85149' },
-  backendDownState: { flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: '#f85149' },
-  backendDownIcon: { width: 48, height: 48, borderRadius: '50%', background: 'rgba(248,81,73,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 },
-  errorIcon: { width: 32, height: 32, borderRadius: '50%', background: 'rgba(248,81,73,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18, fontWeight: 700 },
-  retryBtn: { background: 'rgba(38,166,154,0.2)', border: '1px solid #26a69a', color: '#26a69a', padding: '8px 20px', borderRadius: 6, cursor: 'pointer', fontSize: 13, fontWeight: 600 },
-  spinner: { width: 24, height: 24, border: '2px solid #21262d', borderTopColor: '#26a69a', borderRadius: '50%', animation: 'spin 1s linear infinite' },
+  root: {
+    display: 'flex',
+    flexDirection: 'column',
+    height: '100vh',
+    background: '#0d1117',
+    color: '#e6edf3',
+    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif',
+  },
+  nav: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '16px',
+    padding: '0 16px',
+    height: '48px',
+    background: 'rgba(13, 17, 23, 0.95)',
+    borderBottom: '1px solid #21262d',
+    backdropFilter: 'blur(8px)',
+    flexShrink: 0,
+    zIndex: 100,
+  },
+  navBrand: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginRight: '16px',
+  },
+  navLogo: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '6px',
+    background: 'linear-gradient(135deg, #26a69a, #1a7f75)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontWeight: 700,
+    fontSize: '14px',
+    color: '#fff',
+  },
+  navTitle: {
+    fontWeight: 700,
+    fontSize: '13px',
+    color: '#e6edf3',
+    letterSpacing: '0.5px',
+  },
+  liveModeBadge: {
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '9px',
+    fontWeight: 700,
+    background: 'rgba(63, 185, 80, 0.15)',
+    color: '#3fb950',
+    border: '1px solid rgba(63, 185, 80, 0.3)',
+  },
+  demoModeBadge: {
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontSize: '9px',
+    fontWeight: 700,
+    background: 'rgba(227, 179, 65, 0.15)',
+    color: '#e3b341',
+    border: '1px solid rgba(227, 179, 65, 0.3)',
+  },
+  navSections: {
+    display: 'flex',
+    gap: '4px',
+    flex: 1,
+  },
+  navSection: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '2px',
+  },
+  navSectionLabel: {
+    fontSize: '8px',
+    color: '#484f58',
+    fontWeight: 700,
+    letterSpacing: '0.5px',
+    marginRight: '2px',
+    textTransform: 'uppercase',
+  },
+  navSectionItems: {
+    display: 'flex',
+    gap: '1px',
+  },
+  navLink: {
+    background: 'transparent',
+    border: 'none',
+    padding: '4px 8px',
+    color: '#8b949e',
+    fontSize: '11px',
+    cursor: 'pointer',
+    borderRadius: '4px',
+    whiteSpace: 'nowrap',
+  },
+  navLinkActive: {
+    background: 'rgba(38, 166, 154, 0.1)',
+    border: 'none',
+    padding: '4px 8px',
+    color: '#26a69a',
+    fontSize: '11px',
+    cursor: 'pointer',
+    borderRadius: '4px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+  },
+  navHomeBtn: {
+    background: 'transparent',
+    border: '1px solid #21262d',
+    padding: '4px 8px',
+    color: '#8b949e',
+    fontSize: '10px',
+    cursor: 'pointer',
+    borderRadius: '4px',
+    marginLeft: 'auto',
+  },
+  main: {
+    flex: 1,
+    overflow: 'auto',
+  },
+  terminalLayout: {
+    display: 'flex',
+    height: '100%',
+  },
+  sidebar: {
+    width: '240px',
+    borderRight: '1px solid #21262d',
+    overflow: 'auto',
+    flexShrink: 0,
+  },
+  terminalMain: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+    overflow: 'hidden',
+  },
+  chartArea: {
+    flex: 1,
+    minHeight: 0,
+  },
+  bottomPanels: {
+    display: 'flex',
+    gap: '1px',
+    borderTop: '1px solid #21262d',
+    maxHeight: '200px',
+    overflow: 'auto',
+  },
+  panelColumn: {
+    flex: 1,
+    minWidth: '200px',
+    overflow: 'auto',
+    borderRight: '1px solid #21262d',
+  },
 };
 
 export default App;

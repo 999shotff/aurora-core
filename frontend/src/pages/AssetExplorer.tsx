@@ -33,32 +33,6 @@ const CATEGORY_COLORS: Record<string, string> = {
   forex: '#3fb950',
 };
 
-const MOCK_QUOTES: Record<string, number> = {
-  'BTC-USD': 67432.18,
-  'ETH-USD': 3521.47,
-  GOLD: 2342.60,
-  SILVER: 27.831,
-  SPY: 532.14,
-  QQQ: 461.28,
-  NIFTY: 22147.00,
-  NASDAQ: 16832.61,
-  EURUSD: 1.08432,
-  USDJPY: 154.823,
-};
-
-const MOCK_CHANGES: Record<string, { change: number; changePct: number }> = {
-  'BTC-USD': { change: 1243.50, changePct: 1.88 },
-  'ETH-USD': { change: -42.30, changePct: -1.19 },
-  GOLD: { change: 18.40, changePct: 0.79 },
-  SILVER: { change: -0.124, changePct: -0.44 },
-  SPY: { change: 4.82, changePct: 0.91 },
-  QQQ: { change: 8.15, changePct: 1.80 },
-  NIFTY: { change: 186.30, changePct: 0.85 },
-  NASDAQ: { change: 142.73, changePct: 0.86 },
-  EURUSD: { change: 0.00234, changePct: 0.22 },
-  USDJPY: { change: -0.342, changePct: -0.22 },
-};
-
 function loadFavorites(): string[] {
   try {
     const raw = localStorage.getItem('aurora_favorites');
@@ -108,18 +82,16 @@ const AssetExplorer: React.FC<{ onSelectAsset: (symbol: string) => void }> = ({ 
       const data: Quote = await res.json();
       setQuotes(prev => ({ ...prev, [symbol]: data }));
     } catch {
-      const mockPrice = MOCK_QUOTES[symbol] ?? 0;
-      const mockChange = MOCK_CHANGES[symbol] ?? { change: 0, changePct: 0 };
       setQuotes(prev => ({
         ...prev,
         [symbol]: {
           symbol,
-          price: mockPrice,
-          change: mockChange.change,
-          changePct: mockChange.changePct,
-          high: mockPrice * 1.012,
-          low: mockPrice * 0.988,
-          open: mockPrice - mockChange.change,
+          price: 0,
+          change: 0,
+          changePct: 0,
+          high: 0,
+          low: 0,
+          open: 0,
           volume: 0,
         },
       }));

@@ -493,7 +493,7 @@ const LandingPage: React.FC<{ onNavigate?: (page: string) => void }> = ({ onNavi
           </p>
           <div style={styles.heroCTA}>
             <button
-              onClick={() => onNavigate?.('terminal')}
+              onClick={() => onNavigate?.('market')}
               style={styles.btnPrimary}
             >
               OPEN TERMINAL
