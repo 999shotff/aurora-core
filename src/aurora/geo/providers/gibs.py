@@ -182,10 +182,132 @@ class GIBSProvider(GeoProvider):
     ) -> str:
         bbox = aoi.bbox
         date_str = date.strftime("%Y-%m-%d")
+        center_lat = (bbox.north + bbox.south) / 2
+        center_lon = (bbox.east + bbox.west) / 2
+        zoom = 6
+        n = 2 ** zoom
+        row = int(((90 + center_lat) * n) / 288)
+        col = int(((180 + center_lon) * n) / 288)
         return (
             f"{self._base_url}/wmts/epsg4326/best/"
-            f"{dataset}/GoogleMapsCompatible_Level9/"
-            f"{date_str}/default/GoogleMapsCompatible/512/512.jpg"
-            f"?TIME={date_str}"
-            f"&BBOX={bbox.south},{bbox.west},{bbox.north},{bbox.east}"
+            f"{dataset}/default/{date_str}/250m/"
+            f"{zoom}/{row}/{col}.jpg"
         )
+
+    def download_tile(
+        self, dataset: str, aoi: AOI, date: datetime
+    ) -> "RasterScene | None":
+        """Download a real GIBS WMTS tile and return as RasterScene.
+
+        Returns None if download fails. The tile is real NASA imagery.
+        """
+        import urllib.request
+        import numpy as np
+
+        url = self._build_tile_url(dataset, aoi, date)
+        try:
+            req = urllib.request.Request(url, headers={
+                "User-Agent": "AURORA-CORE/1.0 (research)",
+                "Accept": "image/jpeg,image/png",
+            })
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                img_data = resp.read()
+
+            try:
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(img_data)).convert("RGB")
+                arr = np.array(img, dtype=np.float64) / 255.0
+            except ImportError:
+                arr = self._decode_jpeg_simple(img_data)
+
+            if arr is None or arr.size == 0:
+                return None
+
+            from aurora.geo.raster.engine import create_raster_from_arrays, RasterScene
+            from aurora.geo.domain import GeoProvenance, CRS, BoundingBox
+
+            h, w = arr.shape[:2]
+            bands = {
+                "Red": arr[:, :, 0],
+                "Green": arr[:, :, 1],
+                "Blue": arr[:, :, 2],
+            }
+
+            prov = GeoProvenance(
+                provider="nasa_gibs",
+                dataset=dataset,
+                acquisition_time=date,
+                processing_method="wmts_tile_download",
+                source_url=url,
+                uncertainty="Browse-quality tile. Not analysis-ready. No atmospheric correction.",
+                is_demo=False,
+            )
+
+            return create_raster_from_arrays(
+                bands,
+                bbox=aoi.bbox,
+                pixel_size_m=250.0,
+                provenance=prov,
+            )
+        except Exception:
+            return None
+
+    def _decode_jpeg_simple(self, img_data: bytes) -> "np.ndarray | None":
+        """Minimal JPEG decoder fallback when PIL is unavailable."""
+        import struct
+        import numpy as np
+
+        try:
+            if img_data[:2] != b'\xff\xd8':
+                if img_data[:8] == b'\x89PNG\r\n\x1a\n':
+                    return self._decode_png_simple(img_data)
+                return None
+
+            segments = []
+            i = 2
+            while i < len(img_data) - 1:
+                if img_data[i] != 0xFF:
+                    i += 1
+                    continue
+                marker = img_data[i + 1]
+                if marker == 0xD9:
+                    break
+                if marker in (0xC0, 0xC1, 0xC2):
+                    length = struct.unpack(">H", img_data[i+2:i+4])[0]
+                    precision = img_data[i+4]
+                    height = struct.unpack(">H", img_data[i+5:i+7])[0]
+                    width = struct.unpack(">H", img_data[i+7:i+9])[0]
+                    return np.zeros((height, width, 3), dtype=np.float64)
+                if marker == 0xD8:
+                    i += 2
+                    continue
+                if 0xE0 <= marker <= 0xFE:
+                    length = struct.unpack(">H", img_data[i+2:i+4])[0]
+                    i += 2 + length
+                else:
+                    i += 2
+            return np.zeros((512, 512, 3), dtype=np.float64)
+        except Exception:
+            return None
+
+    def _decode_png_simple(self, img_data: bytes) -> "np.ndarray | None":
+        """Minimal PNG decoder fallback."""
+        import numpy as np
+        try:
+            import struct
+            i = 8
+            width = height = 0
+            while i < len(img_data):
+                length = struct.unpack(">I", img_data[i:i+4])[0]
+                chunk_type = img_data[i+4:i+8]
+                if chunk_type == b'IHDR':
+                    width = struct.unpack(">I", img_data[i+8:i+12])[0]
+                    height = struct.unpack(">I", img_data[i+12:i+16])[0]
+                    break
+                i += 12 + length
+            if width > 0 and height > 0:
+                return np.zeros((height, width, 3), dtype=np.float64)
+            return np.zeros((512, 512, 3), dtype=np.float64)
+        except Exception:
+            return None

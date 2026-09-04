@@ -521,3 +521,125 @@ def get_timeseries(body: dict) -> dict:
         "integrity_state": search_result.integrity_state.value if search_result.integrity_state else "DATA_AVAILABLE",
         "uncertainty": "Index values computed from observation metadata. Not per-pixel raster computation.",
     }
+
+
+# ── Per-Pixel Index Computation ──
+
+@geo_app.post("/api/v1/geo/index")
+def compute_index(body: dict) -> dict:
+    """Compute a spectral index from real raster data.
+
+    Downloads a real GIBS tile for the specified scene/date,
+    creates a RasterScene, and computes the requested index.
+    Returns per-pixel statistics and provenance.
+    """
+    from pydantic import BaseModel, Field
+    from aurora.geo.domain import AOI, BoundingBox
+
+    class IndexRequest(BaseModel):
+        provider: str = "nasa_gibs"
+        dataset: str = "MODIS_Terra_CorrectedReflectance_TrueColor"
+        aoi_name: str = "default"
+        south: float = Field(..., ge=-90, le=90)
+        west: float = Field(..., ge=-180, le=180)
+        north: float = Field(..., ge=-90, le=90)
+        east: float = Field(..., ge=-180, le=180)
+        date: str
+        index: str = "NDVI"
+
+    try:
+        req = IndexRequest(**body)
+    except Exception as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+
+    from aurora.geo.providers.base import create_default_registry
+
+    registry = create_default_registry()
+    provider = registry.get(req.provider)
+    if not provider:
+        raise HTTPException(status_code=404, detail=f"Provider '{req.provider}' not found")
+
+    bbox = BoundingBox(south=req.south, west=req.west, north=req.north, east=req.east)
+    aoi = AOI(name=req.aoi_name, bbox=bbox)
+
+    try:
+        date_dt = datetime.fromisoformat(req.date.replace("Z", "+00:00"))
+    except ValueError:
+        raise HTTPException(status_code=422, detail="Invalid date format")
+
+    tile_url = None
+    raster_scene = None
+
+    if hasattr(provider, 'download_tile'):
+        raster_scene = provider.download_tile(req.dataset, aoi, date_dt)
+        if raster_scene:
+            tile_url = provider._build_tile_url(req.dataset, aoi, date_dt)
+
+    if raster_scene is None:
+        return {
+            "index": req.index,
+            "supported": False,
+            "integrity_state": "DATA_UNAVAILABLE",
+            "error": f"Could not download raster tile from {req.provider}. "
+                     "Provider may require authentication or tile may be unavailable.",
+            "statistics": None,
+            "provenance": None,
+        }
+
+    from aurora.geo.features.index_engine import compute_index as compute_pixel_index
+    try:
+        result = compute_pixel_index(raster_scene, req.index)
+    except Exception as exc:
+        return {
+            "index": req.index,
+            "supported": False,
+            "integrity_state": "PROCESSING_FAILED",
+            "error": f"Index computation failed: {exc}",
+            "statistics": None,
+            "provenance": None,
+        }
+
+    if not result.supported:
+        return {
+            "index": req.index,
+            "supported": False,
+            "integrity_state": result.integrity_state.value,
+            "error": result.error or f"Index {req.index} not supported for this dataset",
+            "statistics": None,
+            "provenance": None,
+        }
+
+    import numpy as np
+    valid_data = result.data[~np.isnan(result.data)]
+    stats = {
+        "count": int(result.valid_count),
+        "total_pixels": int(result.total_count),
+        "nodata_count": int(result.total_count - result.valid_count),
+        "mean": round(float(result.mean), 6) if not np.isnan(result.mean) else None,
+        "median": round(float(np.median(valid_data)), 6) if len(valid_data) > 0 else None,
+        "std": round(float(result.std), 6) if not np.isnan(result.std) else None,
+        "min": round(float(result.min_val), 6) if not np.isnan(result.min_val) else None,
+        "max": round(float(result.max_val), 6) if not np.isnan(result.max_val) else None,
+    }
+
+    return {
+        "index": req.index,
+        "supported": True,
+        "integrity_state": "DATA_AVAILABLE",
+        "statistics": stats,
+        "formula": result.formula,
+        "source_bands": list(result.source_bands),
+        "methodology_version": result.methodology_version,
+        "processing_library": result.processing_library,
+        "nodata_treatment": result.nodata_treatment,
+        "tile_url": tile_url,
+        "provenance": {
+            "provider": raster_scene.provenance.provider if raster_scene.provenance else req.provider,
+            "dataset": raster_scene.provenance.dataset if raster_scene.provenance else req.dataset,
+            "acquisition_time": raster_scene.provenance.acquisition_time.isoformat() if raster_scene.provenance else date_dt.isoformat(),
+            "processing_method": raster_scene.provenance.processing_method if raster_scene.provenance else "wmts_download",
+            "source_url": raster_scene.provenance.source_url if raster_scene.provenance else tile_url,
+            "uncertainty": raster_scene.provenance.uncertainty if raster_scene.provenance else "",
+        },
+        "uncertainty": result.uncertainty or "Computed from real GIBS browse tile. Not analysis-ready.",
+    }

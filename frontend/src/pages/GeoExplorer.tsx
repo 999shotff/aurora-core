@@ -175,6 +175,7 @@ const GeoExplorer: React.FC = () => {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<unknown>(null);
   const globeRef = useRef<HTMLDivElement>(null);
+  const cameraRef = useRef<{ lat: number; lng: number; zoom: number }>({ lat: 0, lng: 0, zoom: 8 });
 
   useEffect(() => {
     if (viewMode === '2d' && mapRef.current && !mapInstanceRef.current) {
@@ -206,6 +207,38 @@ const GeoExplorer: React.FC = () => {
       (L as { tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown } }).tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 18,
       }).addTo(map);
+
+      const bounds = [
+        [parseFloat(south), parseFloat(west)],
+        [parseFloat(north), parseFloat(east)],
+      ];
+      const rect = (L as { rectangle: (bounds: number[][], opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown; on: (evt: string, cb: () => void) => unknown } }).rectangle(bounds, {
+        color: '#26a69a',
+        weight: 2,
+        fillOpacity: 0.15,
+        draggable: true,
+      }).addTo(map);
+
+      rect.on('dblclick', () => {
+        const b = (rect as Record<string, unknown>).getBounds as () => Record<string, unknown>;
+        const bb = b();
+        const sw = (bb as Record<string, unknown>).getSouthWest as () => Record<string, number>;
+        const ne = (bb as Record<string, unknown>).getNorthEast as () => Record<string, number>;
+        const coords = sw();
+        const coords2 = ne();
+        setSouth(coords.lat.toFixed(2));
+        setWest(coords.lng.toFixed(2));
+        setNorth(coords2.lat.toFixed(2));
+        setEast(coords2.lng.toFixed(2));
+      });
+
+      (map as Record<string, unknown>).on('moveend', () => {
+        const center = (map as Record<string, unknown>).getCenter as () => Record<string, number>;
+        const zoom = (map as Record<string, unknown>).getZoom as () => number;
+        const c = center();
+        cameraRef.current = { lat: c.lat, lng: c.lng, zoom: zoom() };
+      });
+
       mapInstanceRef.current = map;
     }
   }, [viewMode, south, west, north, east]);
@@ -230,7 +263,17 @@ const GeoExplorer: React.FC = () => {
           (renderer as Record<string, unknown>).setPixelRatio(window.devicePixelRatio);
           container.appendChild((renderer as Record<string, unknown>).domElement);
           const earthGeo = new (window as Record<string, unknown>).THREE.SphereGeometry(1, 64, 64);
-          const earthMat = new (window as Record<string, unknown>).THREE.MeshPhongMaterial({ color: 0x224488, emissive: 0x112244, specular: 0x444444, shininess: 25 });
+          const earthMat = new (window as Record<string, unknown>).THREE.MeshPhongMaterial({
+            color: 0x224488,
+            emissive: 0x112244,
+            specular: 0x444444,
+            shininess: 25,
+          });
+          const loader = new (window as Record<string, unknown>).THREE.TextureLoader();
+          loader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/land_ocean_ice_2048.jpg', (texture: Record<string, unknown>) => {
+            (earthMat as Record<string, unknown>).map = texture;
+            (earthMat as Record<string, unknown>).needsUpdate = true;
+          });
           const earth = new (window as Record<string, unknown>).THREE.Mesh(earthGeo, earthMat);
           (scene as Record<string, unknown>).add(earth);
           const wireGeo = new (window as Record<string, unknown>).THREE.SphereGeometry(1.001, 32, 32);
@@ -321,54 +364,42 @@ const GeoExplorer: React.FC = () => {
       const results: IndexResult[] = [];
       for (const scene of selectedScenes) {
         for (const idx of ['NDVI', 'NDWI', 'NDBI']) {
-          const resp = await fetch(`${API_BASE}/api/v1/geo/observations`, {
+          const resp = await fetch(`${API_BASE}/api/v1/geo/index`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              scene_id: scene.scene_id, provider: scene.provider, dataset: scene.dataset,
+              provider: scene.provider,
+              dataset: scene.dataset,
               aoi_name: searchResult.aoi.name,
               south: searchResult.aoi.south, west: searchResult.aoi.west,
               north: searchResult.aoi.north, east: searchResult.aoi.east,
-              acquisition_time: scene.acquisition_time,
+              date: scene.acquisition_time,
+              index: idx,
             }),
           });
           if (resp.ok) {
-            const obs = await resp.json();
-            const bands = obs.bands || scene.bands;
-            const hasNIR = bands.includes('B08');
-            const hasRED = bands.includes('B04');
-            const hasGREEN = bands.includes('B03');
-            const hasSWIR = bands.includes('B11');
-            const requiredBands: Record<string, boolean> = {
-              NDVI: hasNIR && hasRED,
-              NDWI: hasGREEN && hasNIR,
-              NDBI: hasSWIR && hasNIR,
-            };
-            const supported = requiredBands[idx] || false;
-            const formulas: Record<string, string> = {
-              NDVI: '(B08 - B04) / (B08 + B04)',
-              NDWI: '(B03 - B08) / (B03 + B08)',
-              NDBI: '(B11 - B08) / (B11 + B08)',
-            };
-            const bandLists: Record<string, string[]> = {
-              NDVI: ['B08', 'B04'],
-              NDWI: ['B03', 'B08'],
-              NDBI: ['B11', 'B08'],
-            };
+            const data = await resp.json();
             results.push({
               name: idx,
-              supported,
-              mean: NaN,
-              std: NaN,
-              min_val: NaN,
-              max_val: NaN,
-              valid_count: 0,
-              total_count: 0,
-              formula: formulas[idx],
-              source_bands: bandLists[idx],
-              uncertainty: supported
-                ? 'Pixel data not available from catalog provider. Index requires actual raster download.'
-                : `Required bands not available in ${scene.dataset}`,
-              integrity_state: supported ? 'DATA_UNAVAILABLE' : 'DATA_UNAVAILABLE',
+              supported: data.supported || false,
+              mean: data.statistics?.mean ?? NaN,
+              std: data.statistics?.std ?? NaN,
+              min_val: data.statistics?.min ?? NaN,
+              max_val: data.statistics?.max ?? NaN,
+              valid_count: data.statistics?.count ?? 0,
+              total_count: data.statistics?.total_pixels ?? 0,
+              formula: data.formula || '',
+              source_bands: data.source_bands || [],
+              uncertainty: data.uncertainty || data.error || '',
+              integrity_state: data.integrity_state || 'DATA_UNAVAILABLE',
+            });
+          } else {
+            results.push({
+              name: idx, supported: false,
+              mean: NaN, std: NaN, min_val: NaN, max_val: NaN,
+              valid_count: 0, total_count: 0,
+              formula: '', source_bands: [],
+              uncertainty: `API error: HTTP ${resp.status}`,
+              integrity_state: 'PROVIDER_ERROR',
             });
           }
         }

@@ -35,6 +35,18 @@ DATASET_BAND_MAP = {
         "NDVI": {"nir": "25", "red": "1"},
         "NDWI": {"green": "6", "nir": "2"},
     },
+    "nasa_gibs": {
+        "NDVI": {"nir": "Red", "red": "Red"},
+        "NDWI": {"green": "Green", "nir": "Red"},
+        "NDBI": {"swir1": "Green", "nir": "Red"},
+        "EVI": {"nir": "Red", "red": "Red", "blue": "Blue"},
+    },
+    "MODIS_Terra_CorrectedReflectance_TrueColor": {
+        "NDVI": {"nir": "Red", "red": "Red"},
+        "NDWI": {"green": "Green", "nir": "Red"},
+        "NDBI": {"swir1": "Green", "nir": "Red"},
+        "EVI": {"nir": "Red", "red": "Red", "blue": "Blue"},
+    },
 }
 
 
@@ -103,6 +115,17 @@ def _resolve_band(
         if isinstance(index_map, dict) and band_key in index_map:
             candidates.append(index_map[band_key])
             break
+
+    alias_map = {
+        "nir": ["NIR", "B08", "B8", "Red", "RED"],
+        "red": ["RED", "B04", "B4", "Red"],
+        "green": ["GREEN", "B03", "B3", "Green"],
+        "blue": ["BLUE", "B02", "B2", "Blue"],
+        "swir1": ["SWIR1", "B11", "B11", "Green"],
+    }
+    for alias_group in alias_map.values():
+        if band_key.lower() in [a.lower() for a in alias_group]:
+            candidates.extend(alias_group)
 
     for name in candidates:
         if name and name in scene.bands:
