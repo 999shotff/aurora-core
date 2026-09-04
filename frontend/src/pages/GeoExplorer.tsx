@@ -338,18 +338,37 @@ const GeoExplorer: React.FC = () => {
             const hasRED = bands.includes('B04');
             const hasGREEN = bands.includes('B03');
             const hasSWIR = bands.includes('B11');
-            let supported = false;
-            let mean = 0;
-            if (idx === 'NDVI' && hasNIR && hasRED) { mean = (0.25 - 0.05) / (0.25 + 0.05); supported = true; }
-            else if (idx === 'NDWI' && hasGREEN && hasNIR) { mean = (0.08 - 0.25) / (0.08 + 0.25); supported = true; }
-            else if (idx === 'NDBI' && hasSWIR && hasNIR) { mean = (0.15 - 0.25) / (0.15 + 0.25); supported = true; }
+            const requiredBands: Record<string, boolean> = {
+              NDVI: hasNIR && hasRED,
+              NDWI: hasGREEN && hasNIR,
+              NDBI: hasSWIR && hasNIR,
+            };
+            const supported = requiredBands[idx] || false;
+            const formulas: Record<string, string> = {
+              NDVI: '(B08 - B04) / (B08 + B04)',
+              NDWI: '(B03 - B08) / (B03 + B08)',
+              NDBI: '(B11 - B08) / (B11 + B08)',
+            };
+            const bandLists: Record<string, string[]> = {
+              NDVI: ['B08', 'B04'],
+              NDWI: ['B03', 'B08'],
+              NDBI: ['B11', 'B08'],
+            };
             results.push({
-              name: idx, supported, mean, std: 0.01, min_val: mean - 0.05, max_val: mean + 0.05,
-              valid_count: 10000, total_count: 12000,
-              formula: idx === 'NDVI' ? '(B08 - B04) / (B08 + B04)' : idx === 'NDWI' ? '(B03 - B08) / (B03 + B08)' : '(B11 - B08) / (B11 + B08)',
-              source_bands: idx === 'NDVI' ? ['B08', 'B04'] : idx === 'NDWI' ? ['B03', 'B08'] : ['B11', 'B08'],
-              uncertainty: 'Requires actual pixel data for precise computation',
-              integrity_state: supported ? 'DATA_AVAILABLE' : 'DATA_UNAVAILABLE',
+              name: idx,
+              supported,
+              mean: NaN,
+              std: NaN,
+              min_val: NaN,
+              max_val: NaN,
+              valid_count: 0,
+              total_count: 0,
+              formula: formulas[idx],
+              source_bands: bandLists[idx],
+              uncertainty: supported
+                ? 'Pixel data not available from catalog provider. Index requires actual raster download.'
+                : `Required bands not available in ${scene.dataset}`,
+              integrity_state: supported ? 'DATA_UNAVAILABLE' : 'DATA_UNAVAILABLE',
             });
           }
         }
@@ -370,15 +389,15 @@ const GeoExplorer: React.FC = () => {
         provider: before.provider, dataset: before.dataset,
         before_time: before.acquisition_time, after_time: after.acquisition_time,
         before_bands: before.bands, after_bands: after.bands,
-        before_values: { band_B03_mean: 0.08, band_B04_mean: 0.05, band_B08_mean: 0.25, band_B11_mean: 0.15 },
-        after_values: { band_B03_mean: 0.08, band_B04_mean: 0.05, band_B08_mean: 0.30, band_B11_mean: 0.15 },
+        before_values: {},
+        after_values: {},
         feature: 'NDVI', threshold: 0.01,
       };
       const resp = await fetch(`${API_BASE}/api/v1/geo/change-detection`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
       const data: ChangeResult = await resp.json();
       setChangeResult(data);
-    } catch { setChangeResult({ change_detected: false, integrity_state: 'PROCESSING_FAILED', uncertainty: 'Change detection failed' }); }
+    } catch { setChangeResult({ change_detected: false, integrity_state: 'PROCESSING_FAILED', uncertainty: 'Change detection requires pixel data not available from catalog provider' }); }
     finally { setLoading(false); }
   }, [selectedScenes, searchResult]);
 

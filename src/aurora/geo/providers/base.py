@@ -121,4 +121,10 @@ def create_default_registry() -> GeoProviderRegistry:
     except Exception:
         pass
 
+    try:
+        from aurora.geo.providers.gee import GEEProvider
+        registry.register(GEEProvider())
+    except Exception:
+        pass
+
     return registry
