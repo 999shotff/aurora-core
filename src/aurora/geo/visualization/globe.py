@@ -6,10 +6,9 @@ Uses CDN-loaded Three.js for browser rendering.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from typing import Any
+from dataclasses import dataclass
 
-from aurora.geo.domain import AOI, BoundingBox, GeoPoint
+from aurora.geo.domain import BoundingBox
 
 
 @dataclass(frozen=True)

@@ -188,9 +188,9 @@ class StreamManager:
                 }
                 try:
                     await client.ws.send_json(msg)
-                except Exception:  # noqa: BLE001, S110 — WebSocket send may fail on disconnect
+                except Exception:
                     pass
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.debug("Failed to fetch data for %s %s", asset, timeframe)
 
     async def _cleanup_stale_clients(self) -> None:
@@ -204,7 +204,7 @@ class StreamManager:
             if client:
                 try:
                     await client.ws.close()
-                except Exception:  # noqa: BLE001, S110 — WebSocket close may fail
+                except Exception:
                     pass
 
 
@@ -301,7 +301,7 @@ async def _send_initial_data(client: ClientState, asset: str, timeframe: str) ->
                 "protocol_version": PROTOCOL_VERSION,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.debug("Failed to send initial data for %s %s", asset, timeframe)
 
 
@@ -343,7 +343,7 @@ async def _send_error(client_id: str, code: str, message: str, request_id: str =
                 "request_id": request_id,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
             })
-        except Exception:  # noqa: BLE001, S110 — WebSocket send may fail on disconnect
+        except Exception:
             pass
 
 
@@ -385,11 +385,11 @@ async def stream_endpoint(ws: WebSocket) -> None:
                         "timestamp": datetime.now(timezone.utc).isoformat(),
                         "server_initiated": True,
                     })
-                except Exception:  # noqa: BLE001
+                except Exception:
                     break
     except WebSocketDisconnect:
         pass
-    except Exception:  # noqa: BLE001
+    except Exception:
         logger.debug("WebSocket error for client %s", client_id)
     finally:
         _manager.unregister(client_id)

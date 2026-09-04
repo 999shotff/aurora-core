@@ -8,8 +8,7 @@ from __future__ import annotations
 
 import os
 import time
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -129,6 +128,7 @@ def list_datasets(provider: str = "") -> dict:
 def search_scenes(body: dict) -> dict:
     """Search for satellite scenes matching an AOI and date range."""
     from pydantic import BaseModel, Field
+
     from aurora.geo.domain import AOI, BoundingBox
 
     class SearchRequest(BaseModel):
@@ -236,6 +236,7 @@ def search_scenes(body: dict) -> dict:
 def get_observations(body: dict) -> dict:
     """Get observations for a scene and AOI."""
     from pydantic import BaseModel, Field
+
     from aurora.geo.domain import AOI, BoundingBox
 
     class ObservationRequest(BaseModel):
@@ -254,8 +255,14 @@ def get_observations(body: dict) -> dict:
     except Exception as exc:
         raise HTTPException(status_code=422, detail=str(exc))
 
+    from aurora.geo.domain import (
+        CloudInfo,
+        GeoProvenance,
+        GeoQualityGrade,
+        GeoQualityReport,
+        GeoScene,
+    )
     from aurora.geo.providers.base import create_default_registry
-    from aurora.geo.domain import GeoScene, GeoProvenance, CloudInfo, GeoQualityReport, GeoQualityGrade
 
     registry = create_default_registry()
     provider = registry.get(req.provider)
@@ -318,6 +325,7 @@ def get_observations(body: dict) -> dict:
 def detect_change(body: dict) -> dict:
     """Detect change between two observations."""
     from pydantic import BaseModel, Field
+
     from aurora.geo.domain import AOI, BoundingBox
     from aurora.geo.features.index_engine import compute_index as compute_pixel_index
 
@@ -469,6 +477,7 @@ def get_timeseries(body: dict) -> dict:
     computes the requested index for each, and returns the time series.
     """
     from pydantic import BaseModel, Field
+
     from aurora.geo.domain import AOI, BoundingBox
 
     class TimeSeriesRequest(BaseModel):
@@ -623,6 +632,7 @@ def compute_index(body: dict) -> dict:
     Returns per-pixel statistics and provenance.
     """
     from pydantic import BaseModel, Field
+
     from aurora.geo.domain import AOI, BoundingBox
 
     class IndexRequest(BaseModel):

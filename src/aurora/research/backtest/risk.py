@@ -74,10 +74,8 @@ def compute_risk_metrics(
             drawdowns.append(dd)
             current_dd_duration += 1
             recovery_found = False
-            if dd > max_dd:
-                max_dd = dd
-            if current_dd_duration > max_dd_duration:
-                max_dd_duration = current_dd_duration
+            max_dd = max(max_dd, dd)
+            max_dd_duration = max(max_dd_duration, current_dd_duration)
 
     ulcer = sqrt(sum(d**2 for d in drawdowns) / len(drawdowns)) if drawdowns else 0.0
     pain = sum(drawdowns) / len(drawdowns) if drawdowns else 0.0

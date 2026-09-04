@@ -6,28 +6,21 @@ No API key required for catalog search. Data access requires registration.
 
 from __future__ import annotations
 
-import os
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
+from datetime import datetime
 
 from aurora.geo.domain import (
     AOI,
-    BoundingBox,
     CloudInfo,
     GeoDatasetInfo,
     GeoIntegrityState,
     GeoObservation,
     GeoProvenance,
     GeoProviderCapabilities,
-    GeoQualityReport,
     GeoQualityGrade,
-    GeoRasterMetadata,
+    GeoQualityReport,
     GeoScene,
-    CRS,
 )
 from aurora.geo.providers.base import GeoProvider, GeoSearchResult
-
 
 _SENTINEL_DATASETS = {
     "S2L2A": GeoDatasetInfo(
@@ -140,8 +133,8 @@ class SentinelProvider(GeoProvider):
         )
 
         try:
-            import urllib.request
             import json
+            import urllib.request
             req = urllib.request.Request(url, headers={"Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=30) as resp:
                 data = json.loads(resp.read().decode())

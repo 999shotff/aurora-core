@@ -97,6 +97,6 @@ def fetch_all_instruments(
     for ticker in tickers:
         try:
             datasets[ticker] = fetch_yfinance(ticker, period=period, interval=interval)
-        except Exception:  # noqa: BLE001, S112
+        except Exception:
             continue
     return datasets

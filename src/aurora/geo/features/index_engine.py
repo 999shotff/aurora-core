@@ -8,13 +8,11 @@ Every result records full provenance.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 import numpy as np
 
-from aurora.geo.raster.engine import RasterScene, RasterBand
 from aurora.geo.domain import GeoIntegrityState
-
+from aurora.geo.raster.engine import RasterBand, RasterScene
 
 # ── Sentinel-2 band mappings ──
 
@@ -88,7 +86,7 @@ def _get_valid_stats(data: np.ndarray, nodata: float = np.nan) -> dict[str, floa
         "std": float(np.std(valid)),
         "min": float(np.min(valid)),
         "max": float(np.max(valid)),
-        "count": int(len(valid)),
+        "count": len(valid),
     }
 
 

@@ -31,7 +31,31 @@ select, button {
 }
 
 input:focus, select:focus, button:focus {
-  outline: 1px solid #1f6feb;
+  outline: 2px solid #26a69a;
+  outline-offset: 2px;
+}
+
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 0;
+  background: #26a69a;
+  color: #0d1117;
+  padding: 8px 16px;
+  z-index: 10000;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.skip-link:focus {
+  top: 0;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
 }
 
 @keyframes spin {

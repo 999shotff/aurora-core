@@ -6,21 +6,15 @@ evidence aggregation system without duplicating scoring logic.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from aurora.features.evidence import (
     EvidenceAggregation,
-    EvidenceItem,
     EvidencePolarity,
-    EvidenceStrength,
-    ResearchClassification,
     aggregate_evidence,
 )
 from aurora.geo.analysis.evidence import (
     aggregate_geo_evidence,
-    change_to_evidence,
-    observation_to_evidence,
-    timeseries_to_evidence,
 )
 from aurora.geo.domain import GeoChange, GeoObservation, GeoTimeSeries
 

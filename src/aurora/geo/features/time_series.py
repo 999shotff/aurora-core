@@ -6,8 +6,8 @@ quality filtering, temporal statistics.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+from dataclasses import dataclass
+from datetime import datetime
 
 import numpy as np
 
@@ -16,8 +16,8 @@ from aurora.geo.domain import (
     GeoTimeSeries,
     GeoTimeSeriesPoint,
 )
-from aurora.geo.raster.engine import RasterScene
 from aurora.geo.features.index_engine import IndexResult
+from aurora.geo.raster.engine import RasterScene
 
 
 @dataclass(frozen=True)
@@ -65,9 +65,7 @@ class GeoTimeSeriesEngine:
 
         if not index_result.supported:
             integrity = GeoIntegrityState.DATA_UNAVAILABLE
-        elif cloud_pct > 80:
-            integrity = GeoIntegrityState.LOW_CONFIDENCE
-        elif confidence < 0.3:
+        elif cloud_pct > 80 or confidence < 0.3:
             integrity = GeoIntegrityState.LOW_CONFIDENCE
         else:
             integrity = GeoIntegrityState.DATA_AVAILABLE

@@ -116,6 +116,7 @@ app.include_router(stream_router)
 
 # M30: Mount geo sub-application
 from aurora.market.geo_api import geo_app
+
 for route in geo_app.routes:
     app.router.routes.append(route)
 
@@ -365,7 +366,7 @@ def get_market_analysis(
                     }
                     for c in mtf_validation.candles
                 ]
-        except Exception:  # noqa: BLE001, S110
+        except Exception:
             pass  # Best effort — missing MTF data is acceptable
 
     # Run analysis
@@ -448,18 +449,19 @@ def run_backtest(body: dict) -> dict:
     if not validation.candles:
         raise HTTPException(status_code=404, detail="No valid candles returned")
 
+    from datetime import datetime
+
+    from aurora.research.backtest.costs import FixedCostModel
     from aurora.research.backtest.data_model import (
         Bar,
         Dataset,
         DatasetMetadata,
         Provenance,
-        QualityReport,
         QualityGrade,
+        QualityReport,
     )
     from aurora.research.backtest.engine import BacktestEngine
-    from aurora.research.backtest.strategy import Signal, Side, StrategyConfig
-    from aurora.research.backtest.costs import FixedCostModel
-    from datetime import datetime, timezone
+    from aurora.research.backtest.strategy import Side, Signal, StrategyConfig
 
     bars = []
     for c in validation.candles:

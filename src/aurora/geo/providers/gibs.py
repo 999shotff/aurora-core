@@ -7,7 +7,7 @@ Clearly distinguished as LIVE/REMOTE DATA.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 
 from aurora.geo.domain import (
     AOI,
@@ -22,7 +22,6 @@ from aurora.geo.domain import (
     GeoScene,
 )
 from aurora.geo.providers.base import GeoProvider, GeoSearchResult
-
 
 _GIBS_DATASETS = {
     "MODIS_Terra_CorrectedReflectance_TrueColor": GeoDatasetInfo(
@@ -196,12 +195,13 @@ class GIBSProvider(GeoProvider):
 
     def download_tile(
         self, dataset: str, aoi: AOI, date: datetime
-    ) -> "RasterScene | None":
+    ) -> RasterScene | None:
         """Download a real GIBS WMTS tile and return as RasterScene.
 
         Returns None if download fails. The tile is real NASA imagery.
         """
         import urllib.request
+
         import numpy as np
 
         url = self._build_tile_url(dataset, aoi, date)
@@ -214,8 +214,9 @@ class GIBSProvider(GeoProvider):
                 img_data = resp.read()
 
             try:
-                from PIL import Image
                 import io
+
+                from PIL import Image
                 img = Image.open(io.BytesIO(img_data)).convert("RGB")
                 arr = np.array(img, dtype=np.float64) / 255.0
             except ImportError:
@@ -224,8 +225,8 @@ class GIBSProvider(GeoProvider):
             if arr is None or arr.size == 0:
                 return None
 
-            from aurora.geo.raster.engine import create_raster_from_arrays, RasterScene
-            from aurora.geo.domain import GeoProvenance, CRS, BoundingBox
+            from aurora.geo.domain import GeoProvenance
+            from aurora.geo.raster.engine import create_raster_from_arrays
 
             h, w = arr.shape[:2]
             bands = {
@@ -253,9 +254,10 @@ class GIBSProvider(GeoProvider):
         except Exception:
             return None
 
-    def _decode_jpeg_simple(self, img_data: bytes) -> "np.ndarray | None":
+    def _decode_jpeg_simple(self, img_data: bytes) -> np.ndarray | None:
         """Minimal JPEG decoder fallback when PIL is unavailable."""
         import struct
+
         import numpy as np
 
         try:
@@ -291,7 +293,7 @@ class GIBSProvider(GeoProvider):
         except Exception:
             return None
 
-    def _decode_png_simple(self, img_data: bytes) -> "np.ndarray | None":
+    def _decode_png_simple(self, img_data: bytes) -> np.ndarray | None:
         """Minimal PNG decoder fallback."""
         import numpy as np
         try:

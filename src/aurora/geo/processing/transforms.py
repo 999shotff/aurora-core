@@ -12,12 +12,10 @@ from typing import Any
 
 from aurora.geo.domain import (
     AOI,
-    BoundingBox,
+    CRS,
     GeoIntegrityState,
     GeoObservation,
     GeoProvenance,
-    GeoRasterMetadata,
-    CRS,
 )
 
 
@@ -89,7 +87,7 @@ def clip_to_aoi(
             notes=p.notes + ("Clipped to AOI",),
         )
 
-    from aurora.geo.domain import GeoScene, CloudInfo, GeoQualityReport
+    from aurora.geo.domain import GeoScene
 
     new_scene = GeoScene(
         scene_id=observation.scene.scene_id,

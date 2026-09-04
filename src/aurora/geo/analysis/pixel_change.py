@@ -8,21 +8,18 @@ Clearly distinguishes OBSERVED CHANGE from UNCERTAIN CHANGE.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime, timezone
+from dataclasses import dataclass
 
 import numpy as np
 
 from aurora.geo.domain import (
-    AOI,
-    BoundingBox,
     GeoChange,
     GeoChangeType,
     GeoIntegrityState,
     GeoObservation,
 )
-from aurora.geo.raster.engine import RasterScene, RasterBand
-from aurora.geo.features.index_engine import IndexResult, compute_index
+from aurora.geo.features.index_engine import compute_index
+from aurora.geo.raster.engine import RasterScene
 
 
 @dataclass(frozen=True)

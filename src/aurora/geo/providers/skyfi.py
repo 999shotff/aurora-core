@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 import os
 import urllib.request
-from datetime import datetime, timezone
+from datetime import datetime
 
 from aurora.geo.domain import (
     AOI,
@@ -25,7 +25,6 @@ from aurora.geo.domain import (
     GeoScene,
 )
 from aurora.geo.providers.base import GeoProvider, GeoSearchResult
-
 
 _SKYFI_DATASETS = {
     "skyfi_analytics": GeoDatasetInfo(

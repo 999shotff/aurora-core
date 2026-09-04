@@ -271,7 +271,7 @@ def _compute_robustness(
                     pred = [float(s) for s, _ in valid]
                     actual = [1.0 if r > 0 else -1.0 for _, r in valid]
                     robustness[f"da_{param_name}_{var_name}"] = compute_directional_accuracy(pred, actual)
-            except Exception:  # noqa: BLE001, S112
+            except Exception:
                 continue
     return robustness
 

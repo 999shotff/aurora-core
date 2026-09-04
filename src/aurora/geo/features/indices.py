@@ -13,17 +13,13 @@ Do not invent missing bands. Return unsupported if bands unavailable.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
-from datetime import datetime
+from dataclasses import dataclass
 from enum import Enum
-from typing import Any
 
 from aurora.geo.domain import (
     GeoIntegrityState,
     GeoObservation,
     GeoTimeSeries,
-    GeoTimeSeriesPoint,
-    GeoProvenance,
 )
 
 

@@ -367,7 +367,7 @@ class RealMarketDataProvider:
                 data_timestamp=candles[-1].timestamp if candles else "",
                 source_status="ok",
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             return ProviderResponse(
                 candles=[], symbol=symbol, timeframe=timeframe,
                 provider_name=self.name, is_demo=False,

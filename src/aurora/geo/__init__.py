@@ -5,9 +5,9 @@ EXPERIMENTAL. Research evidence only. No predictions. No targeting.
 
 from aurora.geo.domain import (
     AOI,
+    CRS,
     BoundingBox,
     CloudInfo,
-    CRS,
     GeoBand,
     GeoChange,
     GeoChangeType,
@@ -29,9 +29,9 @@ from aurora.geo.features.indices import DerivedFeature
 
 __all__ = [
     "AOI",
+    "CRS",
     "BoundingBox",
     "CloudInfo",
-    "CRS",
     "DerivedFeature",
     "GeoBand",
     "GeoChange",

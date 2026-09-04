@@ -6,22 +6,17 @@ It NEVER automatically becomes a financial prediction.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from datetime import datetime, timezone
-from typing import Any
-
-from aurora.geo.domain import (
-    GeoChange,
-    GeoEvidence,
-    GeoObservation,
-    GeoTimeSeries,
-    GeoIntegrityState,
-)
 from aurora.features.evidence import (
     EvidenceItem,
     EvidencePolarity,
     EvidenceStrength,
     ResearchClassification,
+)
+from aurora.geo.domain import (
+    GeoChange,
+    GeoIntegrityState,
+    GeoObservation,
+    GeoTimeSeries,
 )
 
 

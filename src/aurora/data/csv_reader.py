@@ -41,7 +41,7 @@ def _parse_timestamp(value: str) -> datetime:
         "%d/%m/%Y",
     ):
         try:
-            dt = datetime.strptime(value, fmt)  # noqa: DTZ007
+            dt = datetime.strptime(value, fmt)
             if dt.tzinfo is None:
                 dt = dt.replace(tzinfo=timezone.utc)
             return dt.astimezone(timezone.utc)

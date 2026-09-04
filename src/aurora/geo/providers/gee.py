@@ -6,26 +6,18 @@ When not configured, returns NOT_CONFIGURED status.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
-from typing import Optional
+from datetime import datetime
 
 from aurora.geo.domain import (
     AOI,
-    BoundingBox,
-    CloudInfo,
+    GeoDatasetInfo,
     GeoIntegrityState,
     GeoObservation,
-    GeoProvenance,
-    GeoQualityGrade,
-    GeoQualityReport,
-    GeoRasterMetadata,
+    GeoProviderCapabilities,
     GeoScene,
     GeoSearchResult,
-    GeoProviderCapabilities,
-    GeoDatasetInfo,
 )
 from aurora.geo.providers.base import GeoProvider
-
 
 _GEE_DATASETS = {
     "LANDSAT/LC09/C02/T1_L2": GeoDatasetInfo(

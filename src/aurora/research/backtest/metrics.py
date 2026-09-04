@@ -45,10 +45,8 @@ def _compute_drawdowns(equity_curve: list[float]) -> tuple[list[float], int]:
             dd = (peak - val) / peak if peak > 0 else 0.0
             drawdowns.append(dd)
             current_dd_duration += 1
-            if dd > max_dd:
-                max_dd = dd
-            if current_dd_duration > max_dd_duration:
-                max_dd_duration = current_dd_duration
+            max_dd = max(max_dd, dd)
+            max_dd_duration = max(max_dd_duration, current_dd_duration)
         if val < peak:
             drawdowns.append((peak - val) / peak if peak > 0 else 0.0)
     unique_drawdowns = list({round(d, 10) for d in drawdowns})

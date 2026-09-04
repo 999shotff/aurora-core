@@ -7,20 +7,18 @@ Every change result includes confidence, methodology, and uncertainty.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timezone
 
 from aurora.geo.domain import (
-    AOI,
     GeoChange,
     GeoChangeType,
     GeoIntegrityState,
     GeoObservation,
 )
 from aurora.geo.features.indices import (
+    DerivedFeature,
+    compute_ndbi,
     compute_ndvi,
     compute_ndwi,
-    compute_ndbi,
-    DerivedFeature,
 )
 
 
@@ -94,9 +92,7 @@ def detect_change(
     temporal_penalty = min(0.3, temporal_gap_days / 365.0 * 0.1)
     confidence = max(0.0, 1.0 - cloud_penalty * 0.6 - temporal_penalty)
 
-    if confidence < 0.3:
-        integrity = GeoIntegrityState.LOW_CONFIDENCE
-    elif cloud_penalty > 0.5:
+    if confidence < 0.3 or cloud_penalty > 0.5:
         integrity = GeoIntegrityState.LOW_CONFIDENCE
     else:
         integrity = GeoIntegrityState.DATA_AVAILABLE
