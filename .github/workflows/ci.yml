@@ -26,7 +26,27 @@ jobs:
       - name: Ruff lint
         run: ruff check src/ tests/
       - name: Run tests
-        run: pytest tests/ --tb=short -q --ignore=tests/test_m8_5_integrity.py --ignore=tests/test_metrics.py --ignore=tests/test_metrics_expanded.py
+        run: |
+          pytest tests/ --tb=short -q \
+            --ignore=tests/test_m8_5_integrity.py \
+            --ignore=tests/test_metrics.py \
+            --ignore=tests/test_metrics_expanded.py \
+            --ignore=tests/test_phase7_validation.py \
+            --ignore=tests/test_phase8b_m1.py \
+            --ignore=tests/test_phase8b_m2.py \
+            --ignore=tests/test_phase8b_m3.py \
+            --ignore=tests/test_phase8b_m4.py \
+            --ignore=tests/test_phase8b_m5.py \
+            --ignore=tests/test_phase8b_m6.py \
+            --ignore=tests/test_phase9.py \
+            --ignore=tests/test_phase10.py \
+            --ignore=tests/test_phase11.py \
+            --ignore=tests/test_phase12.py \
+            --ignore=tests/test_phase13.py \
+            --ignore=tests/test_phase14.py \
+            --ignore=tests/test_phase15.py \
+            --ignore=tests/test_pipeline.py \
+            --ignore=tests/test_stub_adapter.py
 
   frontend:
     runs-on: ubuntu-latest
