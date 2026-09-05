@@ -439,8 +439,8 @@ const ResearchWorkspace: React.FC = () => {
                         <tbody>
                           {result.positions.map((t, i) => (
                             <tr key={i}>
-                              <td style={styles.td}>{t.entry_time.split('T')[0]}</td>
-                              <td style={styles.td}>{t.exit_time ? t.exit_time.split('T')[0] : 'OPEN'}</td>
+                              <td style={styles.td}>{new Date(t.entry_time).toLocaleString()}</td>
+                              <td style={styles.td}>{t.exit_time ? new Date(t.exit_time).toLocaleString() : 'OPEN'}</td>
                               <td style={{ ...styles.td, color: t.side === 'long' ? '#3fb950' : '#f85149' }}>{t.side}</td>
                               <td style={{ ...styles.td, color: t.pnl >= 0 ? '#3fb950' : '#f85149' }}>{fmtUsd(t.pnl)}</td>
                               <td style={{ ...styles.td, color: t.pnl_pct >= 0 ? '#3fb950' : '#f85149' }}>{fmtPct(t.pnl_pct)}</td>

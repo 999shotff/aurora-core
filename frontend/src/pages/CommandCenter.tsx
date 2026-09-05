@@ -34,8 +34,8 @@ export const CommandCenter: React.FC = () => {
 
   useEffect(() => {
     emit('navigation', 'Command Center opened', 'live');
-    listInvestigations().then(r => setInvestigations(r.data));
-    listEvidence().then(r => setEvidence(r.data));
+    listInvestigations().then(r => setInvestigations(r.data)).catch(() => setInvestigations([]));
+    listEvidence().then(r => setEvidence(r.data)).catch(() => setEvidence([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -28,7 +28,7 @@ export const EvidencePage: React.FC = () => {
 
   useEffect(() => {
     emit('navigation', 'Evidence opened', 'live');
-    listEvidence().then(r => setItems(r.data));
+    listEvidence().then(r => setItems(r.data)).catch(() => setItems([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

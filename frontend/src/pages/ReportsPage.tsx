@@ -13,7 +13,7 @@ export const ReportsPage: React.FC = () => {
 
   useEffect(() => {
     emit('navigation', 'Reports opened', 'live');
-    listReports().then(r => setReports(r.data));
+    listReports().then(r => setReports(r.data)).catch(() => setReports([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

@@ -241,6 +241,13 @@ const GeoExplorer: React.FC = () => {
 
       mapInstanceRef.current = map;
     }
+    return () => {
+      if (mapInstanceRef.current) {
+        const map = mapInstanceRef.current as Record<string, unknown>;
+        if (typeof map.remove === 'function') map.remove();
+        mapInstanceRef.current = null;
+      }
+    };
   }, [viewMode, south, west, north, east]);
 
   useEffect(() => {
@@ -318,15 +325,40 @@ const GeoExplorer: React.FC = () => {
           }, { passive: false });
           canvas.addEventListener('touchend', () => { touchStart = null; });
           (window as Record<string, unknown>)._auroraGlobeReady = true;
+          let animId = 0;
           const animate = () => {
-            requestAnimationFrame(animate);
+            animId = requestAnimationFrame(animate);
             (renderer as Record<string, unknown>).render(scene, camera);
           };
           animate();
+          // Store cleanup function for unmount
+          (window as Record<string, unknown>)._auroraGlobeCleanup = () => {
+            cancelAnimationFrame(animId);
+            canvas.removeEventListener('mousedown', () => {});
+            canvas.removeEventListener('mousemove', () => {});
+            canvas.removeEventListener('mouseup', () => {});
+            canvas.removeEventListener('mouseleave', () => {});
+            canvas.removeEventListener('wheel', () => {});
+            canvas.removeEventListener('touchstart', () => {});
+            canvas.removeEventListener('touchmove', () => {});
+            canvas.removeEventListener('touchend', () => {});
+            (renderer as Record<string, unknown>).dispose();
+            if (container.contains((renderer as Record<string, unknown>).domElement)) {
+              container.removeChild((renderer as Record<string, unknown>).domElement);
+            }
+          };
         }, 100);
       };
       document.head.appendChild(script);
     }
+    return () => {
+      const cleanup = (window as Record<string, unknown>)._auroraGlobeCleanup;
+      if (typeof cleanup === 'function') {
+        cleanup();
+        (window as Record<string, unknown>)._auroraGlobeCleanup = null;
+        (window as Record<string, unknown>)._auroraGlobeReady = false;
+      }
+    };
   }, [viewMode]);
 
   const handlePreset = (name: string) => {

@@ -23,8 +23,8 @@ export const IntelligencePage: React.FC = () => {
 
   useEffect(() => {
     emit('navigation', 'Intelligence opened', 'live');
-    listInvestigations().then(r => { setInvestigations(r.data); if (r.data.length) setSelectedId(r.data[0].id); });
-    listEvidence().then(r => setEvidence(r.data));
+    listInvestigations().then(r => { setInvestigations(r.data); if (r.data.length) setSelectedId(r.data[0].id); }).catch(() => setInvestigations([]));
+    listEvidence().then(r => setEvidence(r.data)).catch(() => setEvidence([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

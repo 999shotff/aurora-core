@@ -107,42 +107,7 @@ const AnalysisWorkspace: React.FC<AnalysisWorkspaceProps> = ({ symbol, bars }) =
   }, [bars, metrics]);
 
   const correlations = useMemo((): CorrelationPair[] => {
-    if (closes.length < 30) return [];
-    const returns: number[] = [];
-    for (let i = 1; i < closes.length; i++) {
-      returns.push((closes[i] - closes[i - 1]) / closes[i - 1]);
-    }
-    const mockAssets: Record<string, number[]> = {
-      SPY: returns.map(r => r + (Math.sin(returns.indexOf(r)) * 0.001)),
-      GOLD: returns.map(r => r * 0.3 + (Math.cos(returns.indexOf(r)) * 0.0005)),
-      EURUSD: returns.map(r => r * -0.2 + (Math.sin(returns.indexOf(r) * 2) * 0.0008)),
-      'BTC-USD': returns.map(r => r * 1.2 + (Math.cos(returns.indexOf(r) * 3) * 0.002)),
-    };
-
-    const pearson = (x: number[], y: number[]): number => {
-      const n = Math.min(x.length, y.length);
-      if (n < 2) return 0;
-      const mx = x.slice(0, n).reduce((a, b) => a + b, 0) / n;
-      const my = y.slice(0, n).reduce((a, b) => a + b, 0) / n;
-      let num = 0, dx = 0, dy = 0;
-      for (let i = 0; i < n; i++) {
-        const xi = x[i] - mx;
-        const yi = y[i] - my;
-        num += xi * yi;
-        dx += xi * xi;
-        dy += yi * yi;
-      }
-      const den = Math.sqrt(dx * dy);
-      return den === 0 ? 0 : num / den;
-    };
-
-    return Object.entries(mockAssets)
-      .filter(([asset]) => asset !== symbol)
-      .map(([asset, assetReturns]) => ({
-        asset,
-        correlation: pearson(returns.slice(0, assetReturns.length), assetReturns),
-      }))
-      .sort((a, b) => Math.abs(b.correlation) - Math.abs(a.correlation));
+    return [];
   }, [closes, symbol]);
 
   const formatValue = (v: number | null, decimals = 2): string =>
@@ -480,7 +445,7 @@ const AnalysisWorkspace: React.FC<AnalysisWorkspaceProps> = ({ symbol, bars }) =
             <h3 style={styles.panelTitle}>Cross-Asset Correlations</h3>
             <div style={styles.panelBody}>
               {correlations.length === 0 ? (
-                <span style={styles.emptyText}>Insufficient data (min 30 bars)</span>
+                <span style={styles.emptyText}>DATA UNAVAILABLE — Cross-asset data requires multi-source integration</span>
               ) : (
                 correlations.map(c => (
                   <div key={c.asset} style={styles.correlationRow}>
