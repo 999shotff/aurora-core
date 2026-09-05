@@ -1,0 +1,167 @@
+:root {
+  /* Surfaces */
+  --aur-bg-base: #090B10;
+  --aur-bg-elevated: #10131B;
+  --aur-glass: rgba(255, 255, 255, 0.045);
+  --aur-glass-strong: rgba(255, 255, 255, 0.075);
+  --aur-border: rgba(255, 255, 255, 0.10);
+  --aur-border-soft: rgba(255, 255, 255, 0.06);
+
+  /* Text */
+  --aur-ink: #EDEFF3;
+  --aur-ink-dim: #9096A8;
+  --aur-ink-faint: #5B6273;
+
+  /* Accents */
+  --aur-accent: #7C9EFF;
+  --aur-accent-2: #FF8A65;
+  --aur-positive: #34D399;
+  --aur-negative: #F87171;
+  --aur-warning: #FBBF24;
+
+  /* Semantic — Neural Field pipeline stages */
+  --aur-stage-ingestion: #5AC8E8;
+  --aur-stage-analysis: #A78BFA;
+  --aur-stage-evidence: #FF8A65;
+  --aur-stage-validated: #34D399;
+  --aur-stage-conflict: #F87171;
+
+  /* Radii */
+  --aur-r-lg: 28px;
+  --aur-r-md: 18px;
+  --aur-r-sm: 12px;
+  --aur-r-xs: 8px;
+
+  /* Layout */
+  --aur-sidebar-w: 248px;
+  --aur-sidebar-w-collapsed: 72px;
+  --aur-sheet-w: min(440px, 92vw);
+  --aur-topbar-h: 56px;
+
+  /* Typography */
+  --aur-font-display: 'Space Grotesk', sans-serif;
+  --aur-font-body: 'Inter', sans-serif;
+
+  /* Motion */
+  --aur-ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --aur-dur-fast: 120ms;
+  --aur-dur-med: 220ms;
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--aur-bg-base);
+  color: var(--aur-ink);
+  font-family: var(--aur-font-body);
+  font-feature-settings: 'tnum' 1;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(ellipse 900px 500px at 12% -10%, rgba(124, 158, 255, 0.08), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 90% 10%, rgba(255, 138, 101, 0.05), transparent 60%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+h1, h2, h3, h4, .aur-display { font-family: var(--aur-font-display); }
+
+button, input, select, textarea { font-family: inherit; }
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.2); }
+
+:focus-visible {
+  outline: 2px solid var(--aur-accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+.aur-glass-panel {
+  background: var(--aur-glass);
+  border: 1px solid var(--aur-border-soft);
+  border-radius: var(--aur-r-md);
+}
+
+.aur-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ---------------------------------------------------------- Shell layout */
+.aur-shell {
+  display: grid;
+  grid-template-columns: var(--aur-sidebar-w) 1fr;
+  height: 100vh;
+  position: relative;
+  z-index: 1;
+}
+.aur-main {
+  grid-column: 2;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 20px 26px 56px;
+}
+.aur-hamburger-btn { display: none !important; }
+.aur-edge-zone { display: none; }
+
+@media (max-width: 980px) {
+  .aur-shell { grid-template-columns: 1fr; }
+  .aur-main { grid-column: 1; padding: 14px 14px 48px; }
+  .aur-hamburger-btn { display: flex !important; }
+  .aur-sidebar-close-btn { display: flex !important; }
+  .aur-edge-zone {
+    display: block; position: fixed; top: 0; left: 0; bottom: 0; width: 20px; z-index: 59;
+  }
+}
+
+@media (min-width: 981px) {
+  .aur-sidebar { transform: none !important; position: static !important; }
+  .aur-sidebar-close-btn { display: none !important; }
+}
+
+.aur-geo-wrap,
+.aur-market-wrap {
+  margin: -20px -26px 0;
+  height: calc(100vh - 76px);
+}
+@media (max-width: 980px) {
+  .aur-geo-wrap, .aur-market-wrap { margin: -14px -14px 0; height: calc(100vh - 64px); }
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+@keyframes aur-spin {
+  to { transform: rotate(360deg); }
+}
