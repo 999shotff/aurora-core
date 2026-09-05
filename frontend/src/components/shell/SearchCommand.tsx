@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { createPortal } from 'react-dom';
 import { Search, CornerDownLeft } from 'lucide-react';
+import { GlassSurface } from '../ui/GlassSurface';
 
 interface Command {
   id: string;
@@ -83,15 +84,16 @@ export const SearchCommand: React.FC = () => {
       onClick={closePalette}
       style={{ position: 'fixed', inset: 0, background: 'rgba(3,4,7,0.6)', zIndex: 200, display: 'flex', justifyContent: 'center', alignItems: 'flex-start', paddingTop: '12vh' }}
     >
-      <div
-        onClick={e => e.stopPropagation()}
-        role="dialog"
-        aria-label="Command palette"
-        style={{
-          width: 'min(560px, 92vw)', background: 'rgba(16,19,27,0.96)', border: '1px solid var(--aur-border)',
-          borderRadius: 16, backdropFilter: 'blur(24px)', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
-        }}
-      >
+        <GlassSurface
+          as="div"
+          variant="strong"
+          rounding="lg"
+          role="dialog"
+          aria-label="Command palette"
+          style={{
+            width: 'min(560px, 92vw)', overflow: 'hidden', boxShadow: '0 24px 60px rgba(0,0,0,0.5)',
+          }}
+        >
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '14px 16px', borderBottom: '1px solid var(--aur-border-soft)' }}>
           <Search size={16} color="var(--aur-ink-faint)" />
           <input
@@ -129,8 +131,8 @@ export const SearchCommand: React.FC = () => {
             </button>
           ))}
         </div>
-      </div>
-    </div>,
+        </GlassSurface>
+      </div>,
     document.body
   );
 };

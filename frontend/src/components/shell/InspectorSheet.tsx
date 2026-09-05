@@ -40,11 +40,12 @@ export const InspectorProvider: React.FC<{ children: React.ReactNode }> = ({ chi
       )}
       <aside
         ref={elRef}
+        className="aur-glass aur-glass--strong"
         style={{
           position: 'fixed', top: 0, right: 0, bottom: 0, width: 'var(--aur-sheet-w)',
-          background: 'rgba(9,11,16,0.94)', backdropFilter: 'blur(26px) saturate(150%)', WebkitBackdropFilter: 'blur(26px) saturate(150%)',
-          borderLeft: '1px solid var(--aur-border)', zIndex: 71, transform: `translateX(${pos}px)`,
+          zIndex: 71, transform: `translateX(${pos}px)`,
           display: 'flex', flexDirection: 'column', touchAction: 'none', willChange: 'transform',
+          borderRadius: 0,
         }}
         role="dialog"
         aria-label={content?.title ?? 'Inspector'}

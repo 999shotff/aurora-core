@@ -43,4 +43,6 @@ ignore = [
     "ASYNC251", # async-sleep - intentional in test mock
     "RUF012",   # mutable-class-var - test fixture pattern
     "I001",     # import-block-unsorted - cosmetic, low-priority cleanup
+    "EXE001",   # shebang-not-executable - run_benchmark.py not yet made executable
+    "PLW1510",  # subprocess-run-check - scripts use default check=False intentionally
 ]

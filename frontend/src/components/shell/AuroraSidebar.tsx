@@ -5,6 +5,7 @@ import {
   Share2, FileBarChart2, Settings as SettingsIcon, X,
 } from 'lucide-react';
 import { usePhysicsSheet } from '../../lib/usePhysicsSheet';
+import { GlassSurface } from '../ui/GlassSurface';
 
 interface NavItem { to: string; label: string; icon: React.ReactNode; }
 interface NavGroup { title: string; items: NavItem[]; }
@@ -60,13 +61,12 @@ export const AuroraSidebar: React.FC<AuroraSidebarProps> = ({ mobileOpen, onMobi
       )}
       <aside
         ref={elRef}
-        className="aur-sidebar"
+        className="aur-sidebar aur-glass aur-glass--strong"
         style={{
           position: 'fixed', top: 0, left: 0, bottom: 0, width: 'var(--aur-sidebar-w)',
-          background: 'rgba(9,11,16,0.92)', backdropFilter: 'blur(22px) saturate(150%)', WebkitBackdropFilter: 'blur(22px) saturate(150%)',
-          borderRight: '1px solid var(--aur-border-soft)', display: 'flex', flexDirection: 'column', padding: '18px 0',
+          display: 'flex', flexDirection: 'column', padding: '18px 0',
           zIndex: 60, transform: `translateX(${isDesktop() ? 0 : pos}px)`, touchAction: 'none',
-          willChange: 'transform',
+          willChange: 'transform', borderRadius: 0,
         }}
         aria-label="Primary navigation"
       >

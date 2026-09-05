@@ -3,7 +3,6 @@
 Tests Fibonacci, parameters, crosshair sync, analysis freshness, and leakage.
 NO_DEPLOYMENT_SIGNAL. No predictions. No trading signals.
 """
-# ruff: noqa: PLW1510
 
 from __future__ import annotations
 

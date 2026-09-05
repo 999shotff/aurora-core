@@ -45,9 +45,8 @@ export const CommandCenter: React.FC = () => {
   return (
     <div>
       {/* Hero: active session summary — real event-bus count, demo investigation set */}
-      <section style={{
-        position: 'relative', borderRadius: 'var(--aur-r-lg)', border: '1px solid var(--aur-border)',
-        background: 'var(--aur-bg-elevated)', padding: '28px 28px 24px', marginBottom: 18, overflow: 'hidden',
+      <section className="aur-glass aur-glass--strong aur-glass--radial aur-glass--lg" style={{
+        position: 'relative', padding: '28px 28px 24px', marginBottom: 18, overflow: 'hidden',
       }}>
         <div style={{ position: 'absolute', inset: '-40%', background: 'radial-gradient(closest-side, rgba(124,158,255,0.28), transparent 70%), radial-gradient(closest-side, rgba(255,138,101,0.2), transparent 70%)', backgroundRepeat: 'no-repeat', backgroundSize: '60% 60%, 55% 55%', backgroundPosition: '15% 25%, 80% 70%', filter: 'blur(60px)', zIndex: 0, opacity: 0.7 }} />
         <div style={{ position: 'relative', zIndex: 1 }}>

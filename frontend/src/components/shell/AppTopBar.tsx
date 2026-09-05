@@ -12,10 +12,10 @@ interface AppTopBarProps {
 
 export const AppTopBar: React.FC<AppTopBarProps> = ({ title, subtitle, onOpenMobileNav, connectionOk, right }) => (
   <div
+    className="aur-glass aur-glass--md"
     style={{
       display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 14, flexWrap: 'wrap',
-      padding: '12px 16px', borderRadius: 'var(--aur-r-md)', background: 'var(--aur-glass)', border: '1px solid var(--aur-border-soft)',
-      backdropFilter: 'blur(20px) saturate(140%)', WebkitBackdropFilter: 'blur(20px) saturate(140%)', marginBottom: 20,
+      padding: '12px 16px', marginBottom: 20,
     }}
   >
     <div style={{ display: 'flex', alignItems: 'center', gap: 12, minWidth: 0 }}>

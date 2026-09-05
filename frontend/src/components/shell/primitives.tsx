@@ -8,9 +8,10 @@ export const GlassPanel: React.FC<{
   style?: React.CSSProperties;
   className?: string;
   padding?: number | string;
-}> = ({ children, style, className, padding = '20px 22px' }) => (
+  variant?: 'default' | 'strong';
+}> = ({ children, style, className, padding = '20px 22px', variant = 'default' }) => (
   <section
-    className={`aur-glass-panel ${className ?? ''}`}
+    className={`aur-glass ${variant === 'strong' ? 'aur-glass--strong' : ''} aur-glass--md ${className ?? ''}`}
     style={{ padding, ...style }}
   >
     {children}
@@ -74,13 +75,11 @@ export const MetricCard: React.FC<{
 }> = ({ label, value, delta, deltaPositive, origin, icon, onClick }) => (
   <button
     onClick={onClick}
+    className={`aur-glass aur-glass--sm ${onClick ? 'aur-glass--interactive' : ''}`}
     style={{
-      background: 'var(--aur-glass)', border: '1px solid var(--aur-border-soft)', borderRadius: 'var(--aur-r-sm)',
       padding: '16px 18px', textAlign: 'left', color: 'inherit', cursor: onClick ? 'pointer' : 'default',
-      transition: 'border-color .18s, background .18s, transform .18s', width: '100%',
+      width: '100%',
     }}
-    onMouseEnter={e => { if (onClick) { e.currentTarget.style.borderColor = 'var(--aur-border)'; e.currentTarget.style.background = 'var(--aur-glass-strong)'; e.currentTarget.style.transform = 'translateY(-2px)'; } }}
-    onMouseLeave={e => { e.currentTarget.style.borderColor = 'var(--aur-border-soft)'; e.currentTarget.style.background = 'var(--aur-glass)'; e.currentTarget.style.transform = 'translateY(0)'; }}
   >
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
       <span style={{ fontSize: 12, color: 'var(--aur-ink-dim)', fontWeight: 500 }}>{label}</span>
