@@ -17,7 +17,11 @@ interface QuoteData {
 }
 
 const CATEGORY_COLORS: Record<string, string> = {
-  crypto: '#f0883e', commodity: '#e3b341', etf: '#58a6ff', equity_index: '#bc8cff', forex: '#3fb950',
+  crypto: 'var(--aur-accent-2)',
+  commodity: 'var(--aur-warning)',
+  etf: 'var(--aur-accent)',
+  equity_index: 'var(--aur-stage-analysis)',
+  forex: 'var(--aur-positive)',
 };
 
 export const Watchlist: React.FC<Props> = ({ selectedAsset, onSelect }) => {
@@ -59,68 +63,43 @@ export const Watchlist: React.FC<Props> = ({ selectedAsset, onSelect }) => {
   const overallStale = Object.values(quotes).some(q => q.stale);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <span style={styles.title}>Watchlist</span>
-        <span style={{
-          ...styles.badge,
-          background: overallDemo ? '#f0883e' : overallStale ? '#d29922' : '#26a69a',
-        }}>
+    <div className="watchlist">
+      <div className="watchlist-header">
+        <span className="watchlist-title">Watchlist</span>
+        <span className={`watchlist-status ${overallDemo ? 'watchlist-status-demo' : overallStale ? 'watchlist-status-stale' : 'watchlist-status-live'}`}>
           {overallDemo ? 'DEMO' : overallStale ? 'STALE' : 'LIVE'}
         </span>
       </div>
-      <div style={styles.list}>
+      <div className="watchlist-list">
         {ASSETS.map(item => {
           const q = quotes[item.symbol];
           const price = q?.lastPrice;
           const isActive = item.symbol === selectedAsset;
-          const provider = q?.provider ?? '—';
           const isDemo = q?.isDemo ?? true;
           const stale = q?.stale ?? false;
+          const provider = q?.provider ?? '\u2014';
           return (
-            <div
+            <button
               key={item.symbol}
+              className={`watchlist-item ${isActive ? 'watchlist-item-active' : ''}`}
               onClick={() => onSelect(item.symbol)}
-              style={{
-                ...styles.item,
-                ...(isActive ? styles.itemActive : {}),
-              }}
             >
-              <div style={styles.itemTop}>
-                <span style={{ ...styles.symbol, color: CATEGORY_COLORS[item.category] ?? '#f0f6fc' }}>
+              <div className="watchlist-item-top">
+                <span className="watchlist-symbol" style={{ color: CATEGORY_COLORS[item.category] ?? 'var(--aur-ink)' }}>
                   {item.symbol}
                 </span>
-                <span style={styles.price}>{price !== null && price !== undefined ? price.toFixed(item.decimals) : '—'}</span>
+                <span className="watchlist-price">{price !== null && price !== undefined ? price.toFixed(item.decimals) : '\u2014'}</span>
               </div>
-              <div style={styles.itemBottom}>
-                <span style={styles.name}>{item.name}</span>
-                <span style={{
-                  fontSize: 9, fontWeight: 700, padding: '1px 4px', borderRadius: 3,
-                  background: isDemo ? '#f0883e22' : stale ? '#d2992222' : '#26a69a22',
-                  color: isDemo ? '#f0883e' : stale ? '#d29922' : '#26a69a',
-                }}>
+              <div className="watchlist-item-bottom">
+                <span className="watchlist-name">{item.name}</span>
+                <span className={`watchlist-source ${isDemo ? 'watchlist-source-demo' : stale ? 'watchlist-source-stale' : 'watchlist-source-live'}`}>
                   {isDemo ? 'DEMO' : stale ? 'STALE' : provider}
                 </span>
               </div>
-            </div>
+            </button>
           );
         })}
       </div>
     </div>
   );
-};
-
-const styles: Record<string, React.CSSProperties> = {
-  container: { width: 240, minWidth: 200, background: '#0d1117', borderRight: '1px solid #21262d', display: 'flex', flexDirection: 'column', overflow: 'hidden' },
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #21262d' },
-  title: { fontSize: 13, fontWeight: 600, color: '#f0f6fc' },
-  badge: { fontSize: 9, color: '#000', padding: '2px 6px', borderRadius: 4, fontWeight: 700 },
-  list: { flex: 1, overflowY: 'auto' },
-  item: { padding: '8px 12px', cursor: 'pointer', borderBottom: '1px solid #161b22', transition: 'background 0.15s' },
-  itemActive: { background: '#1c2333' },
-  itemTop: { display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  itemBottom: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 },
-  symbol: { fontSize: 13, fontWeight: 700 },
-  name: { fontSize: 11, color: '#8b949e' },
-  price: { fontSize: 13, color: '#f0f6fc', fontWeight: 600, fontFamily: 'monospace' },
 };

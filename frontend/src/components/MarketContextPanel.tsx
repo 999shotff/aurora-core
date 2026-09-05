@@ -407,11 +407,11 @@ const ExplanationSectionComp: React.FC<{ data: ExplanationSection[] }> = ({ data
 
 const styles: Record<string, React.CSSProperties> = {
   container: {
-    width: 280,
+    width: '100%',
+    height: '100%',
     background: '#0d1117',
-    borderLeft: '1px solid #21262d',
     overflowY: 'auto',
-    flexShrink: 0,
+    overflowX: 'hidden',
   },
   header: {
     display: 'flex',

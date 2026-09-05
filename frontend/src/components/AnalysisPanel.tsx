@@ -13,17 +13,20 @@ interface Props {
 export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale, provider, activeOverlays = [] }) => {
   if (!metrics) {
     return (
-      <div style={styles.container}>
-        <div style={styles.header}>
-          <span style={styles.title}>Analysis</span>
-          <span style={{ ...styles.badge, background: '#8b949e' }}>LOADING</span>
+      <div className="analysis-panel">
+        <div className="analysis-panel-header">
+          <span className="analysis-panel-title">Analysis</span>
+          <span className="analysis-badge analysis-badge-loading">LOADING</span>
         </div>
-        <div style={{ padding: 20, color: '#8b949e', textAlign: 'center' }}>Loading...</div>
+        <div className="analysis-state">
+          <div className="analysis-spinner" />
+          <span>Computing indicators</span>
+        </div>
       </div>
     );
   }
 
-  const badgeColor = isDemo ? '#f0883e' : stale ? '#d29922' : '#26a69a';
+  const badgeClass = isDemo ? 'analysis-badge-demo' : stale ? 'analysis-badge-stale' : 'analysis-badge-live';
   const badgeText = isDemo ? 'DEMO' : stale ? 'STALE' : 'LIVE';
   const providerLabel = provider ?? 'unknown';
 
@@ -36,146 +39,150 @@ export const AnalysisPanel: React.FC<Props> = ({ metrics, symbol, isDemo, stale,
   const hasOverlay = (name: string) => activeOverlays.some(s => s.name === name);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.header}>
-        <span style={styles.title}>Analysis</span>
-        <span style={{ ...styles.badge, background: badgeColor }}>{badgeText}</span>
+    <div className="analysis-panel">
+      <div className="analysis-panel-header">
+        <span className="analysis-panel-title">Analysis</span>
+        <span className={`analysis-badge ${badgeClass}`}>{badgeText}</span>
       </div>
 
-      <Section title="Market Data">
-        <Row label="Symbol" value={symbol} />
-        <Row label="Provider" value={providerLabel} color={badgeColor} />
-        <Row label="Data Source" value={metrics.dataSource} color={badgeColor} />
-        <Row label="Trend" value={metrics.trendState}
-          color={metrics.trendState === 'Bullish' ? '#3fb950' : metrics.trendState === 'Bearish' ? '#f85149' : '#8b949e'} />
-        <Row label="Volatility" value={metrics.volatilityState}
-          color={metrics.volatilityState === 'High' ? '#f85149' : metrics.volatilityState === 'Low' ? '#3fb950' : '#8b949e'} />
-      </Section>
+      <div className="analysis-section">
+        <div className="analysis-section-title">Market Data</div>
+        <ARow label="Symbol" value={symbol} />
+        <ARow label="Provider" value={providerLabel} color={badgeClass === 'analysis-badge-live' ? 'var(--aur-positive)' : badgeClass === 'analysis-badge-stale' ? 'var(--aur-warning)' : 'var(--aur-accent-2)'} />
+        <ARow label="Data Source" value={metrics.dataSource} color={badgeClass === 'analysis-badge-live' ? 'var(--aur-positive)' : 'var(--aur-accent-2)'} />
+        <ARow label="Trend" value={metrics.trendState}
+          color={metrics.trendState === 'Bullish' ? 'var(--aur-positive)' : metrics.trendState === 'Bearish' ? 'var(--aur-negative)' : 'var(--aur-ink-dim)'} />
+        <ARow label="Volatility" value={metrics.volatilityState}
+          color={metrics.volatilityState === 'High' ? 'var(--aur-negative)' : metrics.volatilityState === 'Low' ? 'var(--aur-positive)' : 'var(--aur-ink-dim)'} />
+      </div>
 
       {hasOverlay('sma_20') && (
-        <Section title="SMA">
-          <Row label="SMA (20)" value={fmt(getOverlayValue('sma_20'))} color="#2196F3" />
-          {hasOverlay('sma_50') && <Row label="SMA (50)" value={fmt(getOverlayValue('sma_50'))} color="#64B5F6" />}
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">SMA</div>
+          <ARow label="SMA (20)" value={fmt(getOverlayValue('sma_20'))} color="var(--aur-accent)" />
+          {hasOverlay('sma_50') && <ARow label="SMA (50)" value={fmt(getOverlayValue('sma_50'))} color="var(--aur-accent)" />}
+        </div>
       )}
 
       {hasOverlay('ema_12') && (
-        <Section title="EMA">
-          <Row label="EMA (12)" value={fmt(getOverlayValue('ema_12'))} color="#FF9800" />
-          {hasOverlay('ema_26') && <Row label="EMA (26)" value={fmt(getOverlayValue('ema_26'))} color="#FFB74D" />}
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">EMA</div>
+          <ARow label="EMA (12)" value={fmt(getOverlayValue('ema_12'))} color="var(--aur-accent-2)" />
+          {hasOverlay('ema_26') && <ARow label="EMA (26)" value={fmt(getOverlayValue('ema_26'))} color="var(--aur-accent-2)" />}
+        </div>
       )}
 
       {hasOverlay('rsi_14') && (
-        <Section title="RSI">
-          <Row label="RSI (14)" value={fmt(getOverlayValue('rsi_14'))}
-            color={(getOverlayValue('rsi_14') ?? 50) > 70 ? '#f85149' : (getOverlayValue('rsi_14') ?? 50) < 30 ? '#3fb950' : '#f0f6fc'} />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">RSI</div>
+          <ARow label="RSI (14)" value={fmt(getOverlayValue('rsi_14'))}
+            color={(getOverlayValue('rsi_14') ?? 50) > 70 ? 'var(--aur-negative)' : (getOverlayValue('rsi_14') ?? 50) < 30 ? 'var(--aur-positive)' : 'var(--aur-ink)'} />
+        </div>
       )}
 
       {hasOverlay('macd_line') && (
-        <Section title="MACD">
-          <Row label="MACD Line" value={fmt(getOverlayValue('macd_line'))} color="#2196F3" />
-          <Row label="Signal" value={fmt(getOverlayValue('macd_signal'))} color="#FF9800" />
-          <Row label="Histogram" value={fmt(getOverlayValue('macd_histogram'))}
-            color={(getOverlayValue('macd_histogram') ?? 0) > 0 ? '#3fb950' : '#f85149'} />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">MACD</div>
+          <ARow label="MACD Line" value={fmt(getOverlayValue('macd_line'))} color="var(--aur-accent)" />
+          <ARow label="Signal" value={fmt(getOverlayValue('macd_signal'))} color="var(--aur-accent-2)" />
+          <ARow label="Histogram" value={fmt(getOverlayValue('macd_histogram'))}
+            color={(getOverlayValue('macd_histogram') ?? 0) > 0 ? 'var(--aur-positive)' : 'var(--aur-negative)'} />
+        </div>
       )}
 
       {hasOverlay('bb_upper') && (
-        <Section title="Bollinger Bands">
-          <Row label="Upper" value={fmt(getOverlayValue('bb_upper'))} color="#9C27B0" />
-          <Row label="Middle" value={fmt(getOverlayValue('bb_middle'))} color="#9C27B0" />
-          <Row label="Lower" value={fmt(getOverlayValue('bb_lower'))} color="#9C27B0" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">Bollinger Bands</div>
+          <ARow label="Upper" value={fmt(getOverlayValue('bb_upper'))} color="var(--aur-stage-analysis)" />
+          <ARow label="Middle" value={fmt(getOverlayValue('bb_middle'))} color="var(--aur-stage-analysis)" />
+          <ARow label="Lower" value={fmt(getOverlayValue('bb_lower'))} color="var(--aur-stage-analysis)" />
+        </div>
       )}
 
       {hasOverlay('stoch_k') && (
-        <Section title="Stochastic">
-          <Row label="%K" value={fmt(getOverlayValue('stoch_k'))} color="#E91E63" />
-          <Row label="%D" value={fmt(getOverlayValue('stoch_d'))} color="#2196F3" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">Stochastic</div>
+          <ARow label="%K" value={fmt(getOverlayValue('stoch_k'))} color="var(--aur-accent-2)" />
+          <ARow label="%D" value={fmt(getOverlayValue('stoch_d'))} color="var(--aur-accent)" />
+        </div>
       )}
 
       {hasOverlay('adx_line') && (
-        <Section title="ADX/DMI">
-          <Row label="ADX" value={fmt(getOverlayValue('adx_line'))} color="#FFD700" />
-          <Row label="+DI" value={fmt(getOverlayValue('adx_plus_di'))} color="#26a69a" />
-          <Row label="-DI" value={fmt(getOverlayValue('adx_minus_di'))} color="#f85149" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">ADX/DMI</div>
+          <ARow label="ADX" value={fmt(getOverlayValue('adx_line'))} color="var(--aur-warning)" />
+          <ARow label="+DI" value={fmt(getOverlayValue('adx_plus_di'))} color="var(--aur-positive)" />
+          <ARow label="-DI" value={fmt(getOverlayValue('adx_minus_di'))} color="var(--aur-negative)" />
+        </div>
       )}
 
       {hasOverlay('atr_14') && (
-        <Section title="ATR">
-          <Row label="ATR (14)" value={fmt(getOverlayValue('atr_14'))} color="#FF9800" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">ATR</div>
+          <ARow label="ATR (14)" value={fmt(getOverlayValue('atr_14'))} color="var(--aur-accent-2)" />
+        </div>
       )}
 
       {hasOverlay('cci_20') && (
-        <Section title="CCI">
-          <Row label="CCI (20)" value={fmt(getOverlayValue('cci_20'))} color="#9C27B0" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">CCI</div>
+          <ARow label="CCI (20)" value={fmt(getOverlayValue('cci_20'))} color="var(--aur-stage-analysis)" />
+        </div>
       )}
 
       {hasOverlay('obv') && (
-        <Section title="OBV">
-          <Row label="OBV" value={fmtLarge(getOverlayValue('obv'))} color="#2196F3" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">OBV</div>
+          <ARow label="OBV" value={fmtLarge(getOverlayValue('obv'))} color="var(--aur-accent)" />
+        </div>
       )}
 
       {hasOverlay('mfi_14') && (
-        <Section title="MFI">
-          <Row label="MFI (14)" value={fmt(getOverlayValue('mfi_14'))} color="#9C27B0" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">MFI</div>
+          <ARow label="MFI (14)" value={fmt(getOverlayValue('mfi_14'))} color="var(--aur-stage-analysis)" />
+        </div>
       )}
 
       {hasOverlay('fib_0') && (
-        <Section title="Fibonacci">
-          <Row label="High" value={fmt(getOverlayValue('fib_0'))} color="#00BCD4" />
-          <Row label="Low" value={fmt(getOverlayValue('fib_100'))} color="#4CAF50" />
-          <Row label="23.6%" value={fmt(getOverlayValue('fib_23.6'))} color="#FF9800" />
-          <Row label="38.2%" value={fmt(getOverlayValue('fib_38.2'))} color="#E91E63" />
-          <Row label="50.0%" value={fmt(getOverlayValue('fib_50'))} color="#FFFFFF" />
-          <Row label="61.8%" value={fmt(getOverlayValue('fib_61.8'))} color="#9C27B0" />
-          <Row label="78.6%" value={fmt(getOverlayValue('fib_78.6'))} color="#2196F3" />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">Fibonacci</div>
+          <ARow label="High" value={fmt(getOverlayValue('fib_0'))} color="var(--aur-stage-ingestion)" />
+          <ARow label="Low" value={fmt(getOverlayValue('fib_100'))} color="var(--aur-positive)" />
+          <ARow label="50.0%" value={fmt(getOverlayValue('fib_50'))} color="var(--aur-ink)" />
+        </div>
       )}
 
       {!hasOverlay('sma_20') && !hasOverlay('ema_12') && !hasOverlay('rsi_14') && !hasOverlay('macd_line') && (
-        <Section title="Technical Indicators">
-          <Row label="RSI (14)" value={fmt(metrics.rsi)}
-            color={metrics.rsi && metrics.rsi > 70 ? '#f85149' : metrics.rsi && metrics.rsi < 30 ? '#3fb950' : '#f0f6fc'} />
-          <Row label="MACD Line" value={fmt(metrics.macdLine)}
-            color={metrics.macdHistogram && metrics.macdHistogram > 0 ? '#3fb950' : '#f85149'} />
-          <Row label="MACD Signal" value={fmt(metrics.macdSignal)} />
-          <Row label="MACD Histogram" value={fmt(metrics.macdHistogram)}
-            color={metrics.macdHistogram && metrics.macdHistogram > 0 ? '#3fb950' : '#f85149'} />
-          <Row label="ATR (14)" value={fmt(metrics.atr)} />
-        </Section>
+        <div className="analysis-section">
+          <div className="analysis-section-title">Technical Indicators</div>
+          <ARow label="RSI (14)" value={fmt(metrics.rsi)}
+            color={metrics.rsi && metrics.rsi > 70 ? 'var(--aur-negative)' : metrics.rsi && metrics.rsi < 30 ? 'var(--aur-positive)' : 'var(--aur-ink)'} />
+          <ARow label="MACD Line" value={fmt(metrics.macdLine)}
+            color={metrics.macdHistogram && metrics.macdHistogram > 0 ? 'var(--aur-positive)' : 'var(--aur-negative)'} />
+          <ARow label="MACD Signal" value={fmt(metrics.macdSignal)} />
+          <ARow label="MACD Histogram" value={fmt(metrics.macdHistogram)}
+            color={metrics.macdHistogram && metrics.macdHistogram > 0 ? 'var(--aur-positive)' : 'var(--aur-negative)'} />
+          <ARow label="ATR (14)" value={fmt(metrics.atr)} />
+        </div>
       )}
 
-      <Section title="Research Status">
-        <div style={styles.researchBox}>
-          <div style={styles.researchLabel}>AURORA CORE Research Status</div>
-          <div style={styles.researchValue}>NO_DEPLOYMENT_SIGNAL</div>
-          <div style={styles.researchNote}>No profitable strategy detected. Analysis only.</div>
+      <div className="analysis-section">
+        <div className="analysis-section-title">Research Status</div>
+        <div className="analysis-research-box">
+          <div className="analysis-research-label">AURORA CORE Research Status</div>
+          <div className="analysis-research-value">NO_DEPLOYMENT_SIGNAL</div>
+          <div className="analysis-research-note">No profitable strategy detected. Analysis only.</div>
         </div>
-      </Section>
+      </div>
     </div>
   );
 };
 
-const Section: React.FC<{ title: string; children: React.ReactNode }> = ({ title, children }) => (
-  <div style={styles.section}>
-    <div style={styles.sectionTitle}>{title}</div>
-    {children}
-  </div>
-);
-
-const Row: React.FC<{ label: string; value: string; color?: string }> = ({ label, value, color }) => (
-  <div style={styles.row}>
-    <span style={styles.label}>{label}</span>
-    <span style={{ ...styles.value, color: color ?? '#f0f6fc' }}>{value}</span>
+const ARow: React.FC<{ label: string; value: string; color?: string }> = ({ label, value, color }) => (
+  <div className="analysis-row">
+    <span className="analysis-row-label">{label}</span>
+    <span className="analysis-row-value" style={{ color: color ?? 'var(--aur-ink)' }}>{value}</span>
   </div>
 );
 
@@ -190,19 +197,3 @@ function fmtLarge(v: number | null): string {
   if (Math.abs(v) >= 1e3) return (v / 1e3).toFixed(2) + 'K';
   return v.toFixed(2);
 }
-
-const styles: Record<string, React.CSSProperties> = {
-  container: { width: 280, minWidth: 240, background: '#0d1117', borderLeft: '1px solid #21262d', display: 'flex', flexDirection: 'column', overflow: 'auto' },
-  header: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderBottom: '1px solid #21262d' },
-  title: { fontSize: 13, fontWeight: 600, color: '#f0f6fc' },
-  badge: { fontSize: 9, color: '#000', padding: '2px 6px', borderRadius: 4, fontWeight: 700 },
-  section: { padding: '10px 12px', borderBottom: '1px solid #161b22' },
-  sectionTitle: { fontSize: 11, fontWeight: 700, color: '#8b949e', textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
-  row: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '3px 0' },
-  label: { fontSize: 12, color: '#8b949e' },
-  value: { fontSize: 12, fontWeight: 600, fontFamily: 'monospace' },
-  researchBox: { background: '#161b22', borderRadius: 6, padding: 10, border: '1px solid #f0883e33' },
-  researchLabel: { fontSize: 11, color: '#f0883e', fontWeight: 700, marginBottom: 4 },
-  researchValue: { fontSize: 13, color: '#f0883e', fontWeight: 900, fontFamily: 'monospace', marginBottom: 4 },
-  researchNote: { fontSize: 10, color: '#8b949e', fontStyle: 'italic' },
-};

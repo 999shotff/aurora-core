@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from '../types';
 import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo, INDICATOR_GROUPS } from '../services/data';
 import { MarketStreamService, type ConnectionState } from '../services/stream';
@@ -15,6 +15,8 @@ import { useEventBus } from '../lib/eventBus';
 import { useDataMode } from '../lib/dataMode';
 
 const REST_FALLBACK_INTERVAL = 60_000;
+
+type BottomTab = 'indicators' | 'analysis' | 'structure' | 'context';
 
 export const MarketObservatoryPage: React.FC = () => {
   const { emit } = useEventBus();
@@ -37,6 +39,8 @@ export const MarketObservatoryPage: React.FC = () => {
   const [structureEnabled, setStructureEnabled] = useState(initial?.structureEnabled ?? false);
   const [contextEnabled, setContextEnabled] = useState(initial?.contextEnabled ?? false);
   const [connectionState, setConnectionState] = useState<ConnectionState>('offline');
+  const [activeBottomTab, setActiveBottomTab] = useState<BottomTab>('analysis');
+  const [watchlistOpen, setWatchlistOpen] = useState(true);
   const barsRef = useRef<OHLCBar[]>([]);
   const abortRef = useRef<AbortController | null>(null);
   const fallbackRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -54,6 +58,7 @@ export const MarketObservatoryPage: React.FC = () => {
       if (controller.signal.aborted) return;
       if (result.empty) {
         setEmptyData(true);
+        setMetrics(getAnalysisMetrics([]));
       } else {
         barsRef.current = result.bars;
         setBars(result.bars);
@@ -70,7 +75,6 @@ export const MarketObservatoryPage: React.FC = () => {
     } finally {
       if (!controller.signal.aborted) setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedAsset, selectedTimeframe, enabledIndicators, indicatorParams]);
 
   useEffect(() => {
@@ -112,7 +116,6 @@ export const MarketObservatoryPage: React.FC = () => {
     });
     streamRef.current = stream;
     return () => { stream.destroy(); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   useEffect(() => { streamRef.current?.subscribe(selectedAsset, selectedTimeframe); }, [selectedAsset, selectedTimeframe]);
@@ -127,16 +130,12 @@ export const MarketObservatoryPage: React.FC = () => {
 
   useEffect(() => { loadData(); return () => { abortRef.current?.abort(); }; }, [selectedAsset, selectedTimeframe]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Re-fetch when the user's live/demo preference (Settings) changes. Note this
-  // is a soft preference — fetchOHLCV auto-detects real backend availability
-  // rather than being hard-switched by this flag; see engineering report.
   const dataModeMounted = useRef(false);
   useEffect(() => {
     if (!dataModeMounted.current) { dataModeMounted.current = true; return; }
     emit('connection', `Data mode preference set to ${dataMode}`, 'live');
     loadData();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [dataMode]);
+  }, [dataMode]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (barsRef.current.length > 0) setOverlays(computeAllIndicators(barsRef.current, enabledIndicators, indicatorParams));
@@ -170,15 +169,14 @@ export const MarketObservatoryPage: React.FC = () => {
 
   const lastBar = bars[bars.length - 1];
   const isIntraday = isIntradayTimeframe(selectedTimeframe);
-  const oscillatorIds = new Set(INDICATOR_GROUPS.filter(g => !g.overlay).flatMap(g => g.subSeries));
-  const oscillatorSeries = overlays.filter(s => oscillatorIds.has(s.name));
+  const oscillatorIds = useMemo(() => new Set(INDICATOR_GROUPS.filter(g => !g.overlay).flatMap(g => g.subSeries)), []);
+  const oscillatorSeries = useMemo(() => overlays.filter(s => oscillatorIds.has(s.name)), [overlays, oscillatorIds]);
+
+  const hasData = bars.length > 0 && !loading && !backendDown && !error && !emptyData;
 
   return (
-    <div className="aur-market-wrap" style={{ display: 'flex', overflow: 'hidden' }}>
-      <div style={{ display: 'flex', flexShrink: 0 }}>
-        <Watchlist selectedAsset={selectedAsset} onSelect={setSelectedAsset} />
-      </div>
-      <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden', minWidth: 0 }}>
+    <div className="aur-market-wrap">
+      <div className="market-layout">
         <TopBar
           selectedAsset={selectedAsset}
           selectedTimeframe={selectedTimeframe}
@@ -188,55 +186,147 @@ export const MarketObservatoryPage: React.FC = () => {
           stale={dataSource.stale}
           provider={dataSource.provider}
         />
-        {loading ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--aur-ink-dim)' }}>
-            <div style={{ width: 24, height: 24, border: '2px solid var(--aur-border-soft)', borderTopColor: 'var(--aur-accent)', borderRadius: '50%', animation: 'aur-spin 1s linear infinite' }} />
-            <span>Loading market data…</span>
-          </div>
-        ) : backendDown ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--aur-negative)' }}>
-            <span style={{ width: 48, height: 48, borderRadius: '50%', background: 'rgba(248,113,113,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 24 }}>⚠</span>
-            <span style={{ fontSize: 18, fontWeight: 700 }}>BACKEND UNAVAILABLE</span>
-            <span style={{ fontSize: 13, color: 'var(--aur-ink-dim)' }}>The market data service is not responding.</span>
-            <button onClick={() => loadData()} style={{ background: 'rgba(124,158,255,0.15)', border: '1px solid var(--aur-accent)', color: 'var(--aur-accent)', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Retry</button>
-          </div>
-        ) : error ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12, color: 'var(--aur-negative)' }}>
-            <span>{error}</span>
-            <button onClick={() => loadData()} style={{ background: 'rgba(124,158,255,0.15)', border: '1px solid var(--aur-accent)', color: 'var(--aur-accent)', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Retry</button>
-          </div>
-        ) : emptyData ? (
-          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 12 }}>
-            <span style={{ fontSize: 18, fontWeight: 700, color: 'var(--aur-warning)' }}>NO DATA AVAILABLE</span>
-            <span style={{ fontSize: 13, color: 'var(--aur-ink-dim)' }}>The backend returned no valid bars for this asset/timeframe.</span>
-            <button onClick={() => loadData()} style={{ background: 'rgba(124,158,255,0.15)', border: '1px solid var(--aur-accent)', color: 'var(--aur-accent)', padding: '8px 20px', borderRadius: 8, cursor: 'pointer', fontSize: 13, fontWeight: 600 }}>Retry</button>
-          </div>
-        ) : (
-          <>
-            <div style={{ flex: 1, overflow: 'hidden', minHeight: 0 }}>
-              <PriceChart bars={bars} overlays={overlays.filter(s => !oscillatorIds.has(s.name))} panels={oscillatorSeries} structureEnabled={structureEnabled} isIntraday={isIntraday} />
+
+        <div className="market-body">
+          {watchlistOpen && (
+            <div className="market-watchlist-pane">
+              <Watchlist selectedAsset={selectedAsset} onSelect={setSelectedAsset} />
             </div>
-            <div style={{ display: 'flex', gap: 16, padding: '6px 16px', background: 'var(--aur-bg-elevated)', borderTop: '1px solid var(--aur-border-soft)', fontSize: 12, color: 'var(--aur-ink-dim)', fontFamily: 'Space Grotesk, monospace', alignItems: 'center', flexShrink: 0 }}>
-              {lastBar && (<><span>O: {lastBar.open.toFixed(2)}</span><span>H: {lastBar.high.toFixed(2)}</span><span>L: {lastBar.low.toFixed(2)}</span><span>C: {lastBar.close.toFixed(2)}</span><span>Vol: {lastBar.volume.toLocaleString()}</span></>)}
-              <button
-                onClick={() => { setStructureEnabled(p => !p); emit('structure_analysis', `Structure overlay ${!structureEnabled ? 'enabled' : 'disabled'}`, 'live'); }}
-                style={{ marginLeft: 'auto', background: structureEnabled ? 'rgba(124,158,255,0.15)' : 'none', border: '1px solid var(--aur-border-soft)', color: structureEnabled ? 'var(--aur-accent)' : 'var(--aur-ink-dim)', padding: '2px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10, fontWeight: 600 }}
-              >STRUCTURE {structureEnabled ? 'ON' : 'OFF'}</button>
-              <button
-                onClick={() => setContextEnabled(p => !p)}
-                style={{ background: contextEnabled ? 'rgba(255,138,101,0.15)' : 'none', border: '1px solid var(--aur-border-soft)', color: contextEnabled ? 'var(--aur-accent-2)' : 'var(--aur-ink-dim)', padding: '2px 8px', borderRadius: 4, cursor: 'pointer', fontSize: 10, fontWeight: 600 }}
-              >CONTEXT {contextEnabled ? 'ON' : 'OFF'}</button>
+          )}
+
+          <div className="market-main">
+            <div className="market-chart-area">
+              {loading ? (
+                <div className="market-state-overlay">
+                  <div className="market-spinner" />
+                  <span>Loading market data</span>
+                </div>
+              ) : backendDown ? (
+                <div className="market-state-overlay market-state-error">
+                  <div className="market-state-icon">&#9888;</div>
+                  <span className="market-state-title">MARKET DATA UNAVAILABLE</span>
+                  <span className="market-state-detail">The market data service is not responding.</span>
+                  <button className="market-retry-btn" onClick={() => loadData()}>Retry</button>
+                </div>
+              ) : error ? (
+                <div className="market-state-overlay market-state-error">
+                  <div className="market-state-icon">&#9888;</div>
+                  <span className="market-state-title">ERROR</span>
+                  <span className="market-state-detail">{error}</span>
+                  <button className="market-retry-btn" onClick={() => loadData()}>Retry</button>
+                </div>
+              ) : emptyData ? (
+                <div className="market-state-overlay">
+                  <div className="market-state-icon">&#9744;</div>
+                  <span className="market-state-title">NO DATA AVAILABLE</span>
+                  <span className="market-state-detail">The backend returned no valid bars for this asset/timeframe.</span>
+                  <button className="market-retry-btn" onClick={() => loadData()}>Retry</button>
+                </div>
+              ) : (
+                <PriceChart
+                  bars={bars}
+                  overlays={overlays.filter(s => !oscillatorIds.has(s.name))}
+                  panels={oscillatorSeries}
+                  structureEnabled={structureEnabled}
+                  isIntraday={isIntraday}
+                />
+              )}
             </div>
-          </>
-        )}
+
+            {hasData && (
+              <div className="market-ohlc-bar">
+                <div className="market-ohlc-values">
+                  {lastBar && (
+                    <>
+                      <span className="ohlc-label">O</span><span className="ohlc-value">{lastBar.open.toFixed(2)}</span>
+                      <span className="ohlc-label">H</span><span className="ohlc-value">{lastBar.high.toFixed(2)}</span>
+                      <span className="ohlc-label">L</span><span className="ohlc-value">{lastBar.low.toFixed(2)}</span>
+                      <span className="ohlc-label">C</span><span className="ohlc-value">{lastBar.close.toFixed(2)}</span>
+                      <span className="ohlc-label">Vol</span><span className="ohlc-value">{lastBar.volume.toLocaleString()}</span>
+                    </>
+                  )}
+                </div>
+                <div className="market-ohlc-controls">
+                  <button
+                    className={`market-toggle-btn ${structureEnabled ? 'market-toggle-on' : ''}`}
+                    onClick={() => { setStructureEnabled(p => !p); emit('structure_analysis', `Structure overlay ${!structureEnabled ? 'enabled' : 'disabled'}`, 'live'); }}
+                  >
+                    STRUCTURE {structureEnabled ? 'ON' : 'OFF'}
+                  </button>
+                  <button
+                    className={`market-toggle-btn market-toggle-accent2 ${contextEnabled ? 'market-toggle-on-accent2' : ''}`}
+                    onClick={() => setContextEnabled(p => !p)}
+                  >
+                    CONTEXT {contextEnabled ? 'ON' : 'OFF'}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {hasData && (
+              <div className="market-bottom-tabs">
+                <div className="market-tab-bar">
+                  <button
+                    className={`market-tab ${activeBottomTab === 'indicators' ? 'market-tab-active' : ''}`}
+                    onClick={() => setActiveBottomTab('indicators')}
+                  >INDICATORS</button>
+                  <button
+                    className={`market-tab ${activeBottomTab === 'analysis' ? 'market-tab-active' : ''}`}
+                    onClick={() => setActiveBottomTab('analysis')}
+                  >ANALYSIS</button>
+                  <button
+                    className={`market-tab ${activeBottomTab === 'structure' ? 'market-tab-active' : ''}`}
+                    onClick={() => setActiveBottomTab('structure')}
+                  >STRUCTURE</button>
+                  <button
+                    className={`market-tab ${activeBottomTab === 'context' ? 'market-tab-active' : ''}`}
+                    onClick={() => setActiveBottomTab('context')}
+                  >CONTEXT</button>
+                  <div className="market-tab-spacer" />
+                  <button
+                    className={`market-tab market-tab-toggle ${watchlistOpen ? 'market-tab-active' : ''}`}
+                    onClick={() => setWatchlistOpen(p => !p)}
+                    title="Toggle watchlist"
+                  >WATCHLIST</button>
+                </div>
+                <div className="market-tab-content">
+                  {activeBottomTab === 'indicators' && (
+                    <IndicatorSelector
+                      enabled={enabledIndicators}
+                      onToggle={handleToggleIndicator}
+                      indicatorParams={indicatorParams}
+                      onParamUpdate={handleParamUpdate}
+                      onParamReset={handleParamReset}
+                      compact
+                    />
+                  )}
+                  {activeBottomTab === 'analysis' && (
+                    <AnalysisPanel
+                      metrics={metrics}
+                      symbol={selectedAsset}
+                      isDemo={dataSource.isDemo}
+                      stale={dataSource.stale}
+                      provider={dataSource.provider}
+                      activeOverlays={overlays}
+                    />
+                  )}
+                  {activeBottomTab === 'structure' && (
+                    <MarketStructurePanel bars={bars} enabled={structureEnabled} />
+                  )}
+                  {activeBottomTab === 'context' && (
+                    <MarketContextPanel
+                      asset={selectedAsset}
+                      timeframe={selectedTimeframe}
+                      bars={bars}
+                      visible={true}
+                    />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
-      <div style={{ display: 'flex', flexShrink: 0 }}>
-        <AnalysisPanel metrics={metrics} symbol={selectedAsset} isDemo={dataSource.isDemo} stale={dataSource.stale} provider={dataSource.provider} activeOverlays={overlays} />
-      </div>
-      <IndicatorSelector enabled={enabledIndicators} onToggle={handleToggleIndicator} indicatorParams={indicatorParams} onParamUpdate={handleParamUpdate} onParamReset={handleParamReset} />
-      <MarketStructurePanel bars={bars} enabled={structureEnabled} />
-      <MarketContextPanel asset={selectedAsset} timeframe={selectedTimeframe} bars={bars} visible={contextEnabled} />
-      <style>{`@keyframes aur-spin { to { transform: rotate(360deg); } }`}</style>
     </div>
   );
 };
