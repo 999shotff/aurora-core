@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import time
 from datetime import datetime
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -741,4 +742,137 @@ def compute_index(body: dict) -> dict:
             "uncertainty": raster_scene.provenance.uncertainty if raster_scene.provenance else "",
         },
         "uncertainty": result.uncertainty or "Computed from real GIBS browse tile. Not analysis-ready.",
+    }
+
+
+# ── Multi-source asset endpoints ─────────────────────────────────────
+
+@geo_app.get("/api/v1/geo/assets")
+def list_assets(type: str | None = None) -> dict[str, Any]:
+    """List multi-source observation assets.
+
+    Satellite assets are backed by the real provider registry.
+    Balloon, UAV, ground sensor, and subsurface assets report
+    DATA SOURCE NOT CONNECTED when no provider is configured.
+    """
+    from aurora.geo.assets import AssetType
+    from aurora.geo.assets_service import (
+        get_all_category_summaries,
+        get_category_summary,
+        list_all_assets,
+    )
+
+    asset_type = None
+    if type:
+        try:
+            asset_type = AssetType(type)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid asset type: {type}")
+
+    assets = list_all_assets(asset_type)
+    categories = get_all_category_summaries() if asset_type is None else [get_category_summary(asset_type)]
+
+    return {
+        "assets": [
+            {
+                "assetId": a.asset_id,
+                "assetType": a.asset_type.value,
+                "name": a.name,
+                "source": a.source,
+                "availability": a.availability.value,
+                "status": a.status,
+                "capabilities": list(a.capabilities),
+                "metadata": a.metadata,
+                "location": {
+                    "latitude": a.location.latitude,
+                    "longitude": a.location.longitude,
+                    "altitudeM": a.location.altitude_m,
+                    "depthM": a.location.depth_m,
+                },
+                "lastObservationAt": a.last_observation_at.isoformat() if a.last_observation_at else None,
+                "evidenceRefs": list(a.evidence_refs),
+                "limitations": list(a.limitations),
+            }
+            for a in assets
+        ],
+        "count": len(assets),
+        "categorySummaries": [
+            {
+                "assetType": c.asset_type.value,
+                "connected": c.connected,
+                "assetCount": c.asset_count,
+                "observationCount": c.observation_count,
+                "note": c.note,
+            }
+            for c in categories
+        ],
+    }
+
+
+@geo_app.get("/api/v1/geo/assets/{asset_id}")
+def get_asset(asset_id: str) -> dict[str, Any]:
+    """Get a single asset by ID."""
+    from aurora.geo.assets_service import get_asset as get_asset_fn
+
+    asset = get_asset_fn(asset_id)
+    if asset is None:
+        raise HTTPException(status_code=404, detail=f"Asset not found: {asset_id}")
+
+    return {
+        "assetId": asset.asset_id,
+        "assetType": asset.asset_type.value,
+        "name": asset.name,
+        "source": asset.source,
+        "availability": asset.availability.value,
+        "status": asset.status,
+        "capabilities": list(asset.capabilities),
+        "metadata": asset.metadata,
+        "location": {
+            "latitude": asset.location.latitude,
+            "longitude": asset.location.longitude,
+            "altitudeM": asset.location.altitude_m,
+            "depthM": asset.location.depth_m,
+        },
+        "lastObservationAt": asset.last_observation_at.isoformat() if asset.last_observation_at else None,
+        "evidenceRefs": list(asset.evidence_refs),
+        "limitations": list(asset.limitations),
+    }
+
+
+@geo_app.get("/api/v1/geo/observations/multi-source")
+def list_multi_source_observations(type: str | None = None) -> dict[str, Any]:
+    """List multi-source observations. Currently only satellite observations
+    are supported (via scene search). Other source types return empty lists
+    when no connected data source exists."""
+    from aurora.geo.assets import AssetType
+    from aurora.geo.assets_service import list_all_observations
+
+    asset_type = None
+    if type:
+        try:
+            asset_type = AssetType(type)
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid asset type: {type}")
+
+    observations = list_all_observations(asset_type)
+
+    return {
+        "observations": [
+            {
+                "observationId": o.observation_id,
+                "assetId": o.asset_id,
+                "assetType": o.asset_type.value,
+                "observationType": o.observation_type.value,
+                "timestamp": o.timestamp.isoformat(),
+                "availability": o.availability.value,
+                "source": o.source,
+                "value": o.value,
+                "unit": o.unit,
+                "confidence": o.confidence,
+                "limitations": list(o.limitations),
+                "evidenceRefs": list(o.evidence_refs),
+            }
+            for o in observations
+        ],
+        "count": len(observations),
     }

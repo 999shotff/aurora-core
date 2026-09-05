@@ -3,6 +3,17 @@
 EXPERIMENTAL. Research evidence only. No predictions. No targeting.
 """
 
+from aurora.geo.assets import (
+    AssetAvailability,
+    AssetLocation,
+    AssetObservation,
+    AssetType,
+    ObservationType,
+    SourceConflict,
+    detect_conflict,
+    observation_to_evidence_dict,
+    sort_observations_chronologically,
+)
 from aurora.geo.domain import (
     AOI,
     CRS,
@@ -30,6 +41,10 @@ from aurora.geo.features.indices import DerivedFeature
 __all__ = [
     "AOI",
     "CRS",
+    "AssetAvailability",
+    "AssetLocation",
+    "AssetObservation",
+    "AssetType",
     "BoundingBox",
     "CloudInfo",
     "DerivedFeature",
@@ -49,4 +64,9 @@ __all__ = [
     "GeoScene",
     "GeoTimeSeries",
     "GeoTimeSeriesPoint",
+    "ObservationType",
+    "SourceConflict",
+    "detect_conflict",
+    "observation_to_evidence_dict",
+    "sort_observations_chronologically",
 ]
