@@ -23,31 +23,27 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
+from aurora.features.evidence import EvidenceItem
+from aurora.geo.analysis.evidence import (
+    aggregate_geo_evidence,
+    change_to_evidence,
+    observation_to_evidence,
+    timeseries_to_evidence,
+)
+from aurora.geo.analysis.pixel_change import detect_pixel_change
 from aurora.geo.domain import (
     AOI,
+    CRS,
     BoundingBox,
     CloudInfo,
-    CRS,
     GeoChange,
     GeoChangeType,
-    GeoEvidence,
     GeoIntegrityState,
     GeoObservation,
     GeoProvenance,
-    GeoQualityReport,
-    GeoRasterMetadata,
     GeoScene,
     GeoTimeSeries,
     GeoTimeSeriesPoint,
-)
-from aurora.geo.raster.engine import (
-    RasterBand,
-    RasterScene,
-    clip_raster_to_bbox,
-    compute_band_stats,
-    create_raster_from_arrays,
-    mask_nodata,
-    resample_raster,
 )
 from aurora.geo.features.index_engine import (
     compute_evi,
@@ -57,14 +53,13 @@ from aurora.geo.features.index_engine import (
     compute_ndwi,
 )
 from aurora.geo.features.time_series import GeoTimeSeriesEngine
-from aurora.geo.analysis.pixel_change import detect_pixel_change
-from aurora.geo.analysis.evidence import (
-    aggregate_geo_evidence,
-    change_to_evidence,
-    observation_to_evidence,
-    timeseries_to_evidence,
+from aurora.geo.raster.engine import (
+    RasterScene,
+    clip_raster_to_bbox,
+    compute_band_stats,
+    create_raster_from_arrays,
+    resample_raster,
 )
-from aurora.features.evidence import EvidenceItem
 
 NOW = datetime(2025, 6, 15, tzinfo=timezone.utc)
 AOI_LA = AOI(
@@ -498,7 +493,7 @@ class TestResearchIntegrity:
                 with open(fpath) as f:
                     for i, line in enumerate(f, 1):
                         stripped = line.strip()
-                        if stripped.startswith("#") or stripped.startswith('"') or stripped.startswith("'"):
+                        if stripped.startswith(("#", '"', "'")):
                             continue
                         if "os.environ" in line or "getenv" in line:
                             continue

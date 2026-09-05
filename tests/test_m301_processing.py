@@ -19,32 +19,28 @@ from datetime import datetime, timedelta, timezone
 import numpy as np
 import pytest
 
-from aurora.geo.raster.engine import (
-    RasterBand,
-    RasterScene,
-    create_raster_from_arrays,
-    clip_raster_to_bbox,
-    resample_raster,
-    mask_nodata,
-    compute_band_stats,
-)
-from aurora.geo.features.index_engine import (
-    compute_ndvi,
-    compute_ndwi,
-    compute_ndbi,
-    compute_evi,
-    compute_index,
-    _safe_divide,
-)
-from aurora.geo.features.time_series import GeoTimeSeriesEngine
 from aurora.geo.analysis.pixel_change import detect_pixel_change
 from aurora.geo.domain import (
     BoundingBox,
-    CRS,
     GeoIntegrityState,
-    GeoProvenance,
 )
-
+from aurora.geo.features.index_engine import (
+    _safe_divide,
+    compute_evi,
+    compute_index,
+    compute_ndbi,
+    compute_ndvi,
+    compute_ndwi,
+)
+from aurora.geo.features.time_series import GeoTimeSeriesEngine
+from aurora.geo.raster.engine import (
+    RasterScene,
+    clip_raster_to_bbox,
+    compute_band_stats,
+    create_raster_from_arrays,
+    mask_nodata,
+    resample_raster,
+)
 
 NOW = datetime(2025, 6, 15, tzinfo=timezone.utc)
 
@@ -308,7 +304,7 @@ class TestPixelChange:
         s1 = create_raster_from_arrays({"B02": np.zeros((10, 10))})
         s2 = create_raster_from_arrays({"B02": np.zeros((10, 10))})
         result = detect_pixel_change(s1, s2)
-        assert not result.change_type.value == "no_change" or result.total_pixels == 0
+        assert result.change_type.value != "no_change" or result.total_pixels == 0
 
     def test_shape_mismatch(self):
         s1 = _make_scene(100, 100)

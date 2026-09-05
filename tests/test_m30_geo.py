@@ -30,14 +30,19 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+from aurora.geo.analysis.change import detect_change
+from aurora.geo.analysis.evidence import (
+    aggregate_geo_evidence,
+    change_to_evidence,
+    observation_to_evidence,
+    timeseries_to_evidence,
+)
 from aurora.geo.domain import (
     AOI,
+    CRS,
     BoundingBox,
     CloudInfo,
-    CRS,
-    GeoChange,
     GeoChangeType,
-    GeoEvidence,
     GeoIntegrityState,
     GeoObservation,
     GeoPoint,
@@ -49,25 +54,16 @@ from aurora.geo.domain import (
     GeoTimeSeries,
     GeoTimeSeriesPoint,
 )
-from aurora.geo.features.indices import DerivedFeature
-from aurora.geo.processing.transforms import clip_to_aoi, reproject
 from aurora.geo.features.indices import (
+    compute_built_area_change,
+    compute_ndbi,
     compute_ndvi,
     compute_ndwi,
-    compute_ndbi,
+    compute_temporal_anomaly,
     compute_vegetation_change,
     compute_water_change,
-    compute_built_area_change,
-    compute_temporal_anomaly,
 )
-from aurora.geo.analysis.change import detect_change
-from aurora.geo.analysis.evidence import (
-    observation_to_evidence,
-    change_to_evidence,
-    timeseries_to_evidence,
-    aggregate_geo_evidence,
-)
-
+from aurora.geo.processing.transforms import clip_to_aoi, reproject
 
 # ── Helpers ──
 
@@ -518,7 +514,7 @@ class TestEvidenceIntegration:
 
 class TestProviderAbstraction:
     def test_registry(self):
-        from aurora.geo.providers.base import GeoProviderRegistry, GeoProvider
+        from aurora.geo.providers.base import GeoProvider, GeoProviderRegistry
 
         class MockProvider(GeoProvider):
             @property

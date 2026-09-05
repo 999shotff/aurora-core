@@ -15,48 +15,40 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
-from math import isclose
 
 import pytest
 
+from aurora.research.backtest.costs import (
+    FixedCostModel,
+    NoCostModel,
+    SlippageModel,
+)
 from aurora.research.backtest.data_model import (
     Bar,
     Dataset,
     DatasetMetadata,
     Provenance,
-    QualityGrade,
     QualityReport,
 )
-from aurora.research.backtest.strategy import (
-    Signal,
-    Side,
-    StrategyConfig,
+from aurora.research.backtest.engine import (
+    BacktestEngine,
+)
+from aurora.research.backtest.metrics import (
+    compute_metrics,
 )
 from aurora.research.backtest.position import (
     Fill,
     PositionSide,
     PositionTracker,
-    Trade,
-)
-from aurora.research.backtest.costs import (
-    CostBreakdown,
-    FixedCostModel,
-    NoCostModel,
-    SlippageModel,
-)
-from aurora.research.backtest.metrics import (
-    PerformanceMetrics,
-    compute_metrics,
 )
 from aurora.research.backtest.risk import (
-    RiskMetrics,
     compute_risk_metrics,
 )
-from aurora.research.backtest.engine import (
-    BacktestEngine,
-    BacktestResult,
+from aurora.research.backtest.strategy import (
+    Side,
+    Signal,
+    StrategyConfig,
 )
-
 
 # ── Helpers ──
 

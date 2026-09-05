@@ -41,7 +41,7 @@ def generate_mock_ohlcv(
     rng = random.Random(seed)
     bars: list[OHLCBar] = []
     price = start_price
-    start_date = datetime(2024, 1, 1)  # noqa: DTZ001
+    start_date = datetime(2024, 1, 1)
 
     for i in range(n_bars):
         ts = start_date + timedelta(days=i)

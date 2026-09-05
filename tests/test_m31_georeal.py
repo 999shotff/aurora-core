@@ -12,9 +12,9 @@ Tests cover:
 - Integrity state propagation
 """
 
-import pytest
-import math
 from datetime import datetime
+
+import pytest
 
 from aurora.geo.domain import (
     AOI,
@@ -22,10 +22,9 @@ from aurora.geo.domain import (
     GeoIntegrityState,
     GeoProvenance,
 )
-from aurora.geo.raster.engine import RasterScene, create_raster_from_arrays
+from aurora.geo.features.index_engine import DATASET_BAND_MAP, _resolve_band, compute_index
 from aurora.geo.providers.gibs import GIBSProvider
-from aurora.geo.features.index_engine import compute_index, DATASET_BAND_MAP, _resolve_band
-
+from aurora.geo.raster.engine import RasterScene, create_raster_from_arrays
 
 # ── GIBS Tile Download ──
 
@@ -369,7 +368,7 @@ class TestScientificIntegrity:
     def test_geoevidence_bridge(self):
         """Verify GeoObservation converts to EvidenceItem."""
         from aurora.geo.analysis.evidence import observation_to_evidence
-        from aurora.geo.domain import GeoObservation, GeoScene, GeoQualityReport, GeoQualityGrade, GeoProvenance
+        from aurora.geo.domain import GeoObservation, GeoQualityGrade, GeoQualityReport, GeoScene
 
         scene = GeoScene(
             scene_id="test_scene",
@@ -391,8 +390,8 @@ class TestScientificIntegrity:
 
     def test_index_observation_to_evidence_unavailable(self):
         """Verify index_observation_to_evidence handles DATA_UNAVAILABLE."""
+        from aurora.features.evidence import EvidencePolarity, EvidenceStrength
         from aurora.geo.analysis.evidence import index_observation_to_evidence
-        from aurora.features.evidence import EvidenceStrength, EvidencePolarity
         evidence = index_observation_to_evidence(
             provider="nasa_gibs",
             scene_id="test",

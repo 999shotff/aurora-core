@@ -7,16 +7,15 @@ NO_DEPLOYMENT_SIGNAL. No predictions. No trading signals.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
 from aurora.market.provider import (
+    CandleData,
     DemoMarketDataProvider,
     RealMarketDataProvider,
-    CandleData,
 )
-
 
 # ============================================================
 # 4h Aggregation

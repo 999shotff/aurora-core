@@ -8,13 +8,14 @@ conversion, and — the hard requirement — no fabricated values anywhere.
 
 from __future__ import annotations
 
-import pytest
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
+from aurora.geo import assets_service
 from aurora.geo.assets import (
     Asset,
     AssetAvailability,
-    AssetLocation,
     AssetObservation,
     AssetType,
     ObservationType,
@@ -23,7 +24,6 @@ from aurora.geo.assets import (
     observation_to_evidence_dict,
     sort_observations_chronologically,
 )
-from aurora.geo import assets_service
 
 
 def _obs(

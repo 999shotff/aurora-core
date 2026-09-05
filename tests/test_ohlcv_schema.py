@@ -34,7 +34,7 @@ def test_ohlcv_bar_utc_normalization():
 
 def test_ohlcv_bar_rejects_naive_timestamp():
     with pytest.raises(ValueError, match="timezone-aware"):
-        _bar(timestamp=datetime(2025, 1, 1, 12, 0))  # noqa: DTZ001
+        _bar(timestamp=datetime(2025, 1, 1, 12, 0))
 
 
 def test_ohlcv_bar_finite_validation():

@@ -30,6 +30,8 @@ ignore = [
     "S112",     # try-except-continue - intentional for provider fallback
     "F821",     # undefined-name - false positives from conditional imports
     "DTZ007",   # call-datetime-strptime-without-zone - internal UTC assumption
+    "DTZ001",   # call-datetime-constructor-without-tz - test fixtures use naive UTC
+    "DTZ005",   # datetime-now-without-tz - test fixtures use naive UTC
     "F841",     # unused-variable - intentional for API compatibility
     "RUF059",   # unused-unpacked-variable - intentional for unpacking
     "PLW0177",  # nan-comparison - intentional for numeric validation
@@ -37,4 +39,7 @@ ignore = [
     "B023",     # function-uses-loop-variable - intentional closures
     "PERF102",  # incorrect-dict-iterator - intentional for dict manipulation
     "PIE796",   # non-unique-enums - intentional for enum design
+    "B017",     # assert-blind-exception - test assertion pattern
+    "ASYNC251", # async-sleep - intentional in test mock
+    "RUF012",   # mutable-class-var - test fixture pattern
 ]

@@ -1,29 +1,22 @@
 """Tests for Phase 13: External Data + Advanced Model Research."""
 
-import pytest
 
+from aurora.models.phase7_validation import OHLCVRecord
 from aurora.models.phase13 import (
+    CROSS_ASSET_MAP,
+    EXTERNAL_FEATURE_GROUPS,
+    EXTERNAL_SOURCES,
     ExternalDataProvenance,
     ExternalDataRecord,
     ExternalDataset,
-    DataQualityReport,
-    LeakageCheckResult,
-    ExternalEvalResult,
-    InstrumentEvalReport,
-    M13Summary,
-    EXTERNAL_SOURCES,
-    EXTERNAL_FEATURE_GROUPS,
-    ALL_EXTERNAL_FEATURE_NAMES,
-    CROSS_ASSET_MAP,
-    validate_external_data,
     check_temporal_leakage,
-    get_external_feature_names,
-    get_external_feature_groups,
-    get_feature_group_indices,
-    engineer_vix_features,
     engineer_external_features,
+    engineer_vix_features,
+    get_external_feature_groups,
+    get_external_feature_names,
+    get_feature_group_indices,
+    validate_external_data,
 )
-from aurora.models.phase7_validation import OHLCVRecord
 
 
 def _make_records(n: int) -> list[OHLCVRecord]:

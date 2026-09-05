@@ -17,7 +17,7 @@ from __future__ import annotations
 
 import json
 import time
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -104,7 +104,6 @@ class TestSubscribeDuringReconnect:
         sm = StreamManager()
         sm.clients = mgr.clients
 
-        from aurora.market.stream import Subscription
         from unittest.mock import patch as _patch
 
         client = mgr.clients["c1"]
