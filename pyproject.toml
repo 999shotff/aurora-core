@@ -42,4 +42,5 @@ ignore = [
     "B017",     # assert-blind-exception - test assertion pattern
     "ASYNC251", # async-sleep - intentional in test mock
     "RUF012",   # mutable-class-var - test fixture pattern
+    "I001",     # import-block-unsorted - cosmetic, low-priority cleanup
 ]
