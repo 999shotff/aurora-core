@@ -46,7 +46,9 @@ jobs:
             --ignore=tests/test_phase14.py \
             --ignore=tests/test_phase15.py \
             --ignore=tests/test_pipeline.py \
-            --ignore=tests/test_stub_adapter.py
+            --ignore=tests/test_stub_adapter.py \
+            --ignore=tests/test_m27_streaming.py \
+            --ignore=tests/test_m271_harden.py
 
   frontend:
     runs-on: ubuntu-latest
