@@ -21,8 +21,9 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e . 2>/dev/null || pip install fastapi uvicorn pydantic yfinance httpx websockets python-dotenv
-          pip install pytest ruff mypy numpy
+          pip install -r requirements.txt
+          pip install -e .
+          pip install pytest ruff numpy
       - name: Ruff lint
         run: ruff check src/ tests/
       - name: Mypy type check
