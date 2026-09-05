@@ -91,3 +91,11 @@ Inspect -> Plan -> Implement -> Test -> Verify -> Document.
 - Always record experiments in the ExperimentRegistry.
 - Report all robustness results, not just the best parameter set.
 - Do not start Phase 8 automatically after Phase 7. Wait for user review.
+
+## M32 Multi-Source Geo Architecture
+- 5 observation categories: satellite, balloon, UAV, ground sensor, subsurface
+- Asset models with frozen dataclasses and __post_init__ validation
+- Asset availability: LIVE, DERIVED, REGISTERED, DEMO, STALE, UNAVAILABLE
+- Non-satellite categories report DATA SOURCE NOT CONNECTED
+- Cross-source conflict detection preserves raw values, never averages
+- All M31 scientific integrity preserved (RGB ≠ NIR/SWIR)
