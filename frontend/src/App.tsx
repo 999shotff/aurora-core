@@ -19,6 +19,7 @@ const SettingsPageWrapper = lazy(() => import('./pages/SettingsPageWrapper').the
 const IndicatorsPage = lazy(() => import('./pages/IndicatorsPage').then(m => ({ default: m.IndicatorsPage })));
 const InvestigationCenter = lazy(() => import('./pages/InvestigationCenter').then(m => ({ default: m.InvestigationCenter })));
 const MemoryCenter = lazy(() => import('./pages/MemoryCenter').then(m => ({ default: m.MemoryCenter })));
+const SynthesisPage = lazy(() => import('./pages/SynthesisPage').then(m => ({ default: m.SynthesisPage })));
 
 function App() {
   return (
@@ -41,6 +42,7 @@ function App() {
                   <Route path="/indicators" element={<IndicatorsPage />} />
                   <Route path="/investigations" element={<InvestigationCenter />} />
                   <Route path="/memory" element={<MemoryCenter />} />
+                  <Route path="/synthesis" element={<SynthesisPage />} />
                   <Route path="*" element={<CommandCenter />} />
                 </Route>
               </Routes>

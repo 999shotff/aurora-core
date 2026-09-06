@@ -141,6 +141,11 @@ from aurora.investigation.api import investigation_app
 for route in investigation_app.routes:
     app.router.routes.append(route)
 
+# LLM-5: Mount synthesis sub-application
+from aurora.ai.synthesis.api import router as synthesis_router
+
+app.include_router(synthesis_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),
