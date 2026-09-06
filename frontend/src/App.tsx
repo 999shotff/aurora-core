@@ -17,6 +17,7 @@ const NeuralFieldPage = lazy(() => import('./pages/NeuralFieldPage').then(m => (
 const ReportsPage = lazy(() => import('./pages/ReportsPage').then(m => ({ default: m.ReportsPage })));
 const SettingsPageWrapper = lazy(() => import('./pages/SettingsPageWrapper').then(m => ({ default: m.SettingsPageWrapper })));
 const IndicatorsPage = lazy(() => import('./pages/IndicatorsPage').then(m => ({ default: m.IndicatorsPage })));
+const InvestigationCenter = lazy(() => import('./pages/InvestigationCenter').then(m => ({ default: m.InvestigationCenter })));
 
 function App() {
   return (
@@ -37,6 +38,7 @@ function App() {
                   <Route path="/reports" element={<ReportsPage />} />
                   <Route path="/settings" element={<SettingsPageWrapper />} />
                   <Route path="/indicators" element={<IndicatorsPage />} />
+                  <Route path="/investigations" element={<InvestigationCenter />} />
                   <Route path="*" element={<CommandCenter />} />
                 </Route>
               </Routes>

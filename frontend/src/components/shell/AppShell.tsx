@@ -14,6 +14,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   '/reports': { title: 'Reports', subtitle: 'Generated findings & exports' },
   '/settings': { title: 'Settings', subtitle: 'Workspace, data sources & appearance' },
   '/indicators': { title: 'Indicators', subtitle: 'Indicator values & configuration' },
+  '/investigations': { title: 'Investigations', subtitle: 'Bounded, auditable investigation engine' },
 };
 
 export const AppShell: React.FC = () => {
