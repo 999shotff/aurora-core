@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Radar, Globe2, LineChart, BrainCircuit, FlaskConical, Shield,
-  Share2, FileBarChart2, Settings as SettingsIcon, X,
+  Share2, FileBarChart2, Settings as SettingsIcon, Activity, X,
 } from 'lucide-react';
 import { usePhysicsSheet } from '../../lib/usePhysicsSheet';
 import { GlassSurface } from '../ui/GlassSurface';
@@ -16,6 +16,7 @@ const NAV_GROUPS: NavGroup[] = [
     title: 'Observe', items: [
       { to: '/geo', label: 'Geo Observatory', icon: <Globe2 size={17} /> },
       { to: '/market', label: 'Market Observatory', icon: <LineChart size={17} /> },
+      { to: '/indicators', label: 'Indicators', icon: <Activity size={17} /> },
     ],
   },
   {

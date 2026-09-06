@@ -13,6 +13,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   '/neural': { title: 'Neural Field', subtitle: 'Live processing pipeline visualization' },
   '/reports': { title: 'Reports', subtitle: 'Generated findings & exports' },
   '/settings': { title: 'Settings', subtitle: 'Workspace, data sources & appearance' },
+  '/indicators': { title: 'Indicators', subtitle: 'Indicator values & configuration' },
 };
 
 export const AppShell: React.FC = () => {
