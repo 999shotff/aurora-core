@@ -3,7 +3,7 @@
  * Connected to real backend. NO_DEPLOYMENT_SIGNAL.
  */
 
-import { useState, useCallback } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { GlassPanel, LoadingState, EmptyState } from '../components/shell/primitives';
 import { useEventBus } from '../lib/eventBus';
 import { API_BASE } from '../services/config';
@@ -88,7 +88,7 @@ export function MemoryCenter() {
     } catch { /* ignore */ }
   }, []);
 
-  useState(() => { loadStats(); });
+  useEffect(() => { loadStats(); }, [loadStats]);
 
   const handleSearch = async () => {
     if (!query.trim()) return;
