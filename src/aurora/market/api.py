@@ -123,6 +123,12 @@ from aurora.market.geo_api import geo_app
 for route in geo_app.routes:
     app.router.routes.append(route)
 
+# LLM-1: Mount reasoning sub-application
+from aurora.ai.api import reason_app
+
+for route in reason_app.routes:
+    app.router.routes.append(route)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),
