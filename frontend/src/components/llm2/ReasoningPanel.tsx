@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { reasonWithTools, type ToolReasonResponse } from '../services/reasoning';
+import { reasonWithTools, type ToolReasonResponse } from '../../services/reasoning';
 
 interface ReasoningPanelProps {
   domain?: string;

@@ -4,7 +4,7 @@ import {
   type EvidenceGraphData,
   type EvidenceGraphNode,
   type EvidenceGraphEdge,
-} from '../services/reasoning';
+} from '../../services/reasoning';
 
 interface EvidenceGraphViewProps {
   refreshInterval?: number;

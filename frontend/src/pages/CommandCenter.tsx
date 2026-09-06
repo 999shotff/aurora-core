@@ -1,12 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Activity, ArrowUpRight, Radar, Brain, Database, Shield } from 'lucide-react';
-import { GlassPanel, MetricCard, StatusBadge, ConfidenceIndicator, LoadingState } from '../components/shell/primitives';
+import { GlassPanel, MetricCard, StatusBadge, LoadingState } from '../components/shell/primitives';
 import { ReasoningPanel, EvidenceGraphView, ToolStatus } from '../components/llm2';
 import { useEventBus } from '../lib/eventBus';
-import { listInvestigations } from '../services/investigations';
+import { listInvestigations, type InvestigationSummary } from '../services/investigations';
 import { listEvidence } from '../services/evidence';
-import type { Investigation, EvidenceItem, ProcessingEvent } from '../types/domain';
+import type { EvidenceItem, ProcessingEvent } from '../types/domain';
 
 function timeAgo(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
@@ -30,18 +30,18 @@ const EVENT_KIND_LABEL: Record<ProcessingEvent['kind'], string> = {
 
 export const CommandCenter: React.FC = () => {
   const { events, emit } = useEventBus();
-  const [investigations, setInvestigations] = useState<Investigation[] | null>(null);
+  const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [evidence, setEvidence] = useState<EvidenceItem[] | null>(null);
   const [activeTab, setActiveTab] = useState<'overview' | 'reasoning' | 'evidence' | 'tools'>('overview');
 
   useEffect(() => {
     emit('navigation', 'Command Center opened', 'live');
-    listInvestigations().then(r => setInvestigations(r.data)).catch(() => setInvestigations([]));
+    listInvestigations({ limit: 50 }).then(r => setInvestigations(r.investigations || [])).catch(() => setInvestigations([]));
     listEvidence().then(r => setEvidence(r.data)).catch(() => setEvidence([]));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const active = investigations?.filter(i => i.status === 'active') ?? [];
+  const active = investigations.filter(i => !['COMPLETE', 'PARTIAL', 'ABSTAINED', 'FAILED', 'CANCELLED'].includes(i.status));
   const recentEvidence = (evidence ?? []).slice().sort((a, b) => +new Date(b.timestamp) - +new Date(a.timestamp)).slice(0, 5);
 
   return (
@@ -131,12 +131,11 @@ export const CommandCenter: React.FC = () => {
               </div>
               {investigations === null && <LoadingState />}
               {active.map(inv => (
-                <div key={inv.id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--aur-border-soft)' }}>
+                <div key={inv.investigation_id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--aur-border-soft)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 500 }}>{inv.title}</span>
+                    <span style={{ fontSize: 13, fontWeight: 500 }}>{inv.query.slice(0, 60)}{inv.query.length > 60 ? '...' : ''}</span>
                     <span style={{ fontSize: 10.5, color: 'var(--aur-ink-faint)', flexShrink: 0 }}>{inv.domain}</span>
                   </div>
-                  <div style={{ marginTop: 6 }}><ConfidenceIndicator band={inv.confidence} /></div>
                 </div>
               ))}
             </GlassPanel>

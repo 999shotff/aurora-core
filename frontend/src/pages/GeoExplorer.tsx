@@ -3,6 +3,26 @@ import { API_BASE } from '../services/config';
 import { fetchAssets, fetchMultiSourceObservations } from '../services/geoAssets';
 import { AssetLayerControl } from '../components/geo/AssetLayerControl';
 import { buildAssetInspectorBody } from '../components/geo/AssetInspector';
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+interface LeafletLib {
+  map: (el: HTMLElement, opts: Record<string, unknown>) => any;
+  tileLayer: (url: string, opts: Record<string, unknown>) => any;
+  rectangle: (bounds: number[][], opts: Record<string, unknown>) => any;
+  marker: (latlng: number[], opts?: Record<string, unknown>) => any;
+  popup: () => any;
+  icon: (opts: Record<string, unknown>) => any;
+  control: { layers: (base: Record<string, unknown>, overlays: Record<string, unknown>, opts?: Record<string, unknown>) => any };
+}
+interface WindowWithLibs {
+  L?: LeafletLib;
+  Cesium?: any;
+  _auroraGlobeReady?: boolean;
+  _auroraGlobeCleanup?: (() => void) | null;
+  THREE?: any;
+}
+const win = window as unknown as WindowWithLibs;
+/* eslint-enable @typescript-eslint/no-explicit-any */
 import { ObservationTimeline } from '../components/geo/ObservationTimeline';
 import { GeoEvidencePanel } from '../components/geo/GeoEvidencePanel';
 import type { GeoAsset, GeoAssetObservation, AssetCategorySummary, AssetType } from '../types/geoAssets';
@@ -147,7 +167,7 @@ const GeoExplorer: React.FC = () => {
   const [assets, setAssets] = useState<GeoAsset[]>([]);
   const [assetSummaries, setAssetSummaries] = useState<AssetCategorySummary[]>([]);
   const [enabledLayers, setEnabledLayers] = useState<Set<AssetType>>(new Set(['satellite']));
-  const [selectedAsset, setSelectedAsset] = useState<GeoAsset | null>(null);
+  const [selectedAsset] = useState<GeoAsset | null>(null);
   const [observations, setObservations] = useState<GeoAssetObservation[]>([]);
 
   const mapRef = useRef<HTMLDivElement>(null);
@@ -167,7 +187,7 @@ const GeoExplorer: React.FC = () => {
   useEffect(() => {
     if (viewMode !== '2d' || !mapRef.current || mapInstanceRef.current) return;
 
-    const L = (window as Record<string, unknown>).L;
+    const L = win.L;
     if (!L) {
       const link = document.createElement('link');
       link.rel = 'stylesheet';
@@ -182,21 +202,39 @@ const GeoExplorer: React.FC = () => {
     }
 
     function initMap() {
-      const L = (window as Record<string, unknown>).L as Record<string, unknown>;
+      const L = win.L;
       if (!L || !mapRef.current || mapInstanceRef.current) return;
       const centerLat = (parseFloat(south) + parseFloat(north)) / 2;
       const centerLng = (parseFloat(west) + parseFloat(east)) / 2;
-      const map = (L as { map: (el: HTMLElement, opts: Record<string, unknown>) => unknown }).map(mapRef.current, {
+      const map = L.map(mapRef.current, {
         center: [centerLat, centerLng],
         zoom: 8,
         zoomControl: false,
         attributionControl: false,
       });
 
-      (L as { tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown } }).tileLayer(
-        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-        { maxZoom: 19, subdomains: 'abc', attribution: '&copy; OpenStreetMap' }
-      ).addTo(map);
+      const basemapProvider = import.meta.env.VITE_BASEMAP_PROVIDER || 'osm';
+      const cartoKey = import.meta.env.VITE_CARTO_API_KEY || '';
+
+      let tileUrl: string;
+      let tileAttribution: string;
+      let tileSubdomains: string | string[];
+
+      if (basemapProvider === 'carto' && cartoKey) {
+        tileUrl = `https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png?api_key=${cartoKey}`;
+        tileAttribution = '&copy; CARTO &copy; OpenStreetMap';
+        tileSubdomains = 'abcd';
+      } else {
+        tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+        tileAttribution = '&copy; OpenStreetMap';
+        tileSubdomains = 'abc';
+      }
+
+      L.tileLayer(tileUrl, {
+        maxZoom: 19,
+        subdomains: tileSubdomains,
+        attribution: tileAttribution,
+      }).addTo(map);
 
       const bounds = [
         [parseFloat(south), parseFloat(west)],
@@ -209,11 +247,10 @@ const GeoExplorer: React.FC = () => {
         draggable: true,
       }).addTo(map);
 
-      rect.on('dblclick', () => {
-        const b = (rect as Record<string, unknown>).getBounds as () => Record<string, unknown>;
-        const bb = b();
-        const sw = (bb as Record<string, unknown>).getSouthWest as () => Record<string, number>;
-        const ne = (bb as Record<string, unknown>).getNorthEast as () => Record<string, number>;
+      (rect as any).on('dblclick', () => {
+        const b = (rect as any).getBounds();
+        const sw = b.getSouthWest();
+        const ne = b.getNorthEast();
         const coords = sw();
         const coords2 = ne();
         setSouth(coords.lat.toFixed(2));
@@ -222,11 +259,10 @@ const GeoExplorer: React.FC = () => {
         setEast(coords2.lng.toFixed(2));
       });
 
-      (map as Record<string, unknown>).on('moveend', () => {
-        const center = (map as Record<string, unknown>).getCenter as () => Record<string, number>;
-        const zoom = (map as Record<string, unknown>).getZoom as () => number;
-        const c = center();
-        cameraRef.current = { lat: c.lat, lng: c.lng, zoom: zoom() };
+      (map as any).on('moveend', () => {
+        const center = (map as any).getCenter();
+        const zoom = (map as any).getZoom();
+        cameraRef.current = { lat: center.lat, lng: center.lng, zoom: zoom };
       });
 
       mapInstanceRef.current = map;
@@ -234,7 +270,7 @@ const GeoExplorer: React.FC = () => {
 
     return () => {
       if (mapInstanceRef.current) {
-        const map = mapInstanceRef.current as Record<string, unknown>;
+        const map = mapInstanceRef.current as any;
         if (typeof map.remove === 'function') map.remove();
         mapInstanceRef.current = null;
       }
@@ -243,17 +279,17 @@ const GeoExplorer: React.FC = () => {
 
   // Globe init (Three.js fallback for 3D)
   useEffect(() => {
-    if (viewMode !== '3d' || !globeRef.current || (window as Record<string, unknown>)._auroraGlobeReady) return;
+    if (viewMode !== '3d' || !globeRef.current || win._auroraGlobeReady) return;
 
     const container = globeRef.current;
     const script = document.createElement('script');
     script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
     script.onload = () => {
       setTimeout(() => {
-        if ((window as Record<string, unknown>)._auroraGlobeReady || !container) return;
+        if (win._auroraGlobeReady || !container) return;
         const w = container.clientWidth;
         const h = container.clientHeight;
-        const THREE = (window as Record<string, unknown>).THREE as Record<string, unknown>;
+        const THREE = win.THREE as any;
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x000011);
         const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
@@ -315,12 +351,12 @@ const GeoExplorer: React.FC = () => {
         }, { passive: false });
         canvas.addEventListener('touchend', () => { touchStart = null; });
 
-        (window as Record<string, unknown>)._auroraGlobeReady = true;
+        win._auroraGlobeReady = true;
         let animId = 0;
         const animate = () => { animId = requestAnimationFrame(animate); renderer.render(scene, camera); };
         animate();
 
-        (window as Record<string, unknown>)._auroraGlobeCleanup = () => {
+        win._auroraGlobeCleanup = () => {
           cancelAnimationFrame(animId);
           renderer.dispose();
           if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
@@ -330,11 +366,11 @@ const GeoExplorer: React.FC = () => {
     document.head.appendChild(script);
 
     return () => {
-      const cleanup = (window as Record<string, unknown>)._auroraGlobeCleanup;
+      const cleanup = win._auroraGlobeCleanup;
       if (typeof cleanup === 'function') {
         cleanup();
-        (window as Record<string, unknown>)._auroraGlobeCleanup = null;
-        (window as Record<string, unknown>)._auroraGlobeReady = false;
+        win._auroraGlobeCleanup = null;
+        win._auroraGlobeReady = false;
       }
     };
   }, [viewMode]);

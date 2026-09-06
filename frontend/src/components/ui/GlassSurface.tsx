@@ -15,6 +15,7 @@ interface GlassSurfaceProps<T extends React.ElementType = 'div'> {
   onMouseLeave?: React.MouseEventHandler<HTMLElement>;
   onClick?: React.MouseEventHandler<HTMLElement>;
   onPointerMove?: React.PointerEventHandler<HTMLElement>;
+  [key: string]: unknown;
 }
 
 export function GlassSurface<T extends React.ElementType = 'div'>({

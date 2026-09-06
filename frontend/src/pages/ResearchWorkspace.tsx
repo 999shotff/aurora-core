@@ -3,7 +3,6 @@ import { API_BASE } from '../services/config';
 
 type DatasetSymbol = 'BTC-USD' | 'SPY' | 'QQQ';
 type Timeframe = 'daily' | '4h' | '1h' | '15m';
-type Side = 'long' | 'short' | 'flat';
 
 interface BacktestParams {
   symbol: DatasetSymbol;
@@ -30,6 +29,11 @@ interface MetricsSummary {
   sortino_ratio: number;
   calmar_ratio: number;
   max_drawdown_duration: number;
+  avg_win: number;
+  avg_loss: number;
+  gross_profit: number;
+  gross_loss: number;
+  avg_holding_periods: number;
 }
 
 interface RiskSummary {
@@ -158,7 +162,7 @@ function MetricCard({ label, value, red }: { label: string; value: string; red?:
   );
 }
 
-function EquityCurve({ curve, timestamps }: { curve: number[]; timestamps: string[] }) {
+function EquityCurve({ curve }: { curve: number[]; timestamps: string[] }) {
   if (curve.length < 2) return null;
   const min = Math.min(...curve);
   const max = Math.max(...curve);

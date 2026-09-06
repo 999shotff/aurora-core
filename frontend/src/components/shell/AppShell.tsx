@@ -15,6 +15,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   '/settings': { title: 'Settings', subtitle: 'Workspace, data sources & appearance' },
   '/indicators': { title: 'Indicators', subtitle: 'Indicator values & configuration' },
   '/investigations': { title: 'Investigations', subtitle: 'Bounded, auditable investigation engine' },
+  '/memory': { title: 'Memory Center', subtitle: 'Cognitive memory search, retrieve & inspect' },
 };
 
 export const AppShell: React.FC = () => {

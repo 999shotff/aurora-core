@@ -4,7 +4,7 @@ import {
   getSafetyLog,
   type ToolInfo,
   type SafetyLogEntry,
-} from '../services/reasoning';
+} from '../../services/reasoning';
 
 interface ToolStatusProps {
   refreshInterval?: number;

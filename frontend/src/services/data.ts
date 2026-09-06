@@ -185,8 +185,6 @@ export async function fetchOHLCV(
 ): Promise<{ bars: OHLCBar[]; isDemo: boolean; provider: string; stale: boolean; empty: boolean }> {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 
-  let lastError: unknown = null;
-
   for (let attempt = 0; attempt < 2; attempt++) {
     if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
 

@@ -2,10 +2,9 @@ import React, { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Radar, Globe2, LineChart, BrainCircuit, FlaskConical, Shield,
-  Share2, FileBarChart2, Settings as SettingsIcon, Activity, X, Search,
+  Share2, FileBarChart2, Settings as SettingsIcon, Activity, X, Search, Database,
 } from 'lucide-react';
 import { usePhysicsSheet } from '../../lib/usePhysicsSheet';
-import { GlassSurface } from '../ui/GlassSurface';
 
 interface NavItem { to: string; label: string; icon: React.ReactNode; }
 interface NavGroup { title: string; items: NavItem[]; }
@@ -29,7 +28,10 @@ const NAV_GROUPS: NavGroup[] = [
   },
   { title: 'Visualize', items: [{ to: '/neural', label: 'Neural Field', icon: <Share2 size={17} /> }] },
   { title: 'Output', items: [{ to: '/reports', label: 'Reports', icon: <FileBarChart2 size={17} /> }] },
-  { title: 'System', items: [{ to: '/settings', label: 'Settings', icon: <SettingsIcon size={17} /> }] },
+  { title: 'System', items: [
+    { to: '/memory', label: 'Memory', icon: <Database size={17} /> },
+    { to: '/settings', label: 'Settings', icon: <SettingsIcon size={17} /> },
+  ] },
 ];
 
 interface AuroraSidebarProps {

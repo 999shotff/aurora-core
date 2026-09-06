@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { Settings, RotateCcw, Check, X, AlertTriangle, Database, Clock } from 'lucide-react';
 import { GlassPanel, StatusBadge, LoadingState } from '../components/shell/primitives';
 import { INDICATOR_GROUPS, computeAllIndicators, fetchOHLCV } from '../services/data';
-import type { OHLCBar, IndicatorSeries } from '../types';
+import type { OHLCBar, IndicatorSeries, Timeframe } from '../types';
 import {
   loadIndicatorSettings,
   saveIndicatorSettings,
@@ -25,7 +25,7 @@ export const IndicatorsPage: React.FC = () => {
   const [series, setSeries] = useState<IndicatorSeries[]>([]);
   const [loading, setLoading] = useState(true);
   const [selectedAsset] = useState('BTC-USD');
-  const [selectedTimeframe] = useState('1D');
+  const [selectedTimeframe] = useState<Timeframe>('1D');
   const [lastSaved, setLastSaved] = useState<boolean | null>(null);
   const [editingIndicator, setEditingIndicator] = useState<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);

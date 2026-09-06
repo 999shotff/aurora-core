@@ -33,7 +33,7 @@ export interface IndicatorValue {
 export interface IndicatorFullState {
   id: string;
   name: string;
-  group: string;
+  group: 'TREND' | 'MOMENTUM' | 'VOLATILITY' | 'VOLUME' | 'LEVELS';
   enabled: boolean;
   overlay: boolean;
   minDataLength: number;

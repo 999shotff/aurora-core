@@ -1,6 +1,6 @@
 import React from 'react';
 import { AlertTriangle, Inbox, Loader2, RefreshCw } from 'lucide-react';
-import type { DataOrigin, ConfidenceBand } from '../types/domain';
+import type { DataOrigin, ConfidenceBand } from '../../types/domain';
 
 /* ---------------------------------------------------------- GlassPanel */
 export const GlassPanel: React.FC<{

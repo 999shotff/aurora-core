@@ -1,4 +1,4 @@
-import React, { Suspense, lazy } from 'react';
+import { Suspense, lazy } from 'react';
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import './styles/tokens.css';
 import { EventBusProvider } from './lib/eventBus';
@@ -18,6 +18,7 @@ const ReportsPage = lazy(() => import('./pages/ReportsPage').then(m => ({ defaul
 const SettingsPageWrapper = lazy(() => import('./pages/SettingsPageWrapper').then(m => ({ default: m.SettingsPageWrapper })));
 const IndicatorsPage = lazy(() => import('./pages/IndicatorsPage').then(m => ({ default: m.IndicatorsPage })));
 const InvestigationCenter = lazy(() => import('./pages/InvestigationCenter').then(m => ({ default: m.InvestigationCenter })));
+const MemoryCenter = lazy(() => import('./pages/MemoryCenter').then(m => ({ default: m.MemoryCenter })));
 
 function App() {
   return (
@@ -39,6 +40,7 @@ function App() {
                   <Route path="/settings" element={<SettingsPageWrapper />} />
                   <Route path="/indicators" element={<IndicatorsPage />} />
                   <Route path="/investigations" element={<InvestigationCenter />} />
+                  <Route path="/memory" element={<MemoryCenter />} />
                   <Route path="*" element={<CommandCenter />} />
                 </Route>
               </Routes>
