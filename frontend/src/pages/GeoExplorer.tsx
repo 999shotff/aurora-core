@@ -1,9 +1,15 @@
 import React, { useState, useCallback, useEffect, useRef } from 'react';
 import { API_BASE } from '../services/config';
+import { fetchAssets, fetchMultiSourceObservations } from '../services/geoAssets';
+import { AssetLayerControl } from '../components/geo/AssetLayerControl';
+import { buildAssetInspectorBody } from '../components/geo/AssetInspector';
+import { ObservationTimeline } from '../components/geo/ObservationTimeline';
+import { GeoEvidencePanel } from '../components/geo/GeoEvidencePanel';
+import type { GeoAsset, GeoAssetObservation, AssetCategorySummary, AssetType } from '../types/geoAssets';
 
-type IntegrityState = 'DATA_AVAILABLE' | 'DATA_STALE' | 'DATA_UNAVAILABLE' | 'LOW_CONFIDENCE' | 'INSUFFICIENT_RESOLUTION' | 'INSUFFICIENT_TEMPORAL_COVERAGE' | 'PROCESSING_FAILED' | 'PROVIDER_ERROR';
-type ViewMode = '2d' | '3d';
-type ActivePanel = 'scenes' | 'indices' | 'change' | 'timeseries' | 'provenance';
+type IntegrityState = 'DATA_AVAILABLE' | 'DATA_STALE' | 'DATA_UNAVAILABLE' | 'LOW_CONFIDENCE' | 'INSUFFICIENT_RESOLUTION' | 'INSUFFICIENT_TEMPORAL_COVERAGE' | 'PROCESSING_FAILED' | 'PROVIDER_ERROR' | 'AUTH_REQUIRED' | 'NO_CHANGE';
+type ViewMode = '2d' | '3d' | 'eo';
+type ActivePanel = 'scenes' | 'indices' | 'change' | 'timeseries' | 'provenance' | 'assets' | 'evidence';
 
 interface GeoScene {
   scene_id: string;
@@ -64,7 +70,7 @@ interface ChangeResult {
 interface TimeSeriesPoint {
   date: string;
   scene_id: string;
-  value: number;
+  value: number | null;
   cloud_pct: number;
   confidence: number;
   integrity_state: string;
@@ -86,61 +92,6 @@ interface TimeSeriesResult {
   uncertainty: string;
 }
 
-const styles: Record<string, React.CSSProperties> = {
-  page: { minHeight: '100vh', background: '#010409', color: '#c9d1d9', fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif", lineHeight: 1.6 },
-  container: { maxWidth: '1600px', margin: '0 auto', padding: '0 24px' },
-  header: { position: 'sticky', top: 0, zIndex: 50, background: 'rgba(1, 4, 9, 0.85)', backdropFilter: 'blur(12px)', borderBottom: '1px solid #21262d', padding: '16px 0' },
-  headerInner: { maxWidth: '1600px', margin: '0 auto', padding: '0 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' },
-  logo: { fontSize: '20px', fontWeight: 700, color: '#e6edf3', letterSpacing: '2px', textTransform: 'uppercase' as const },
-  logoAccent: { color: '#26a69a' },
-  headerTag: { fontSize: '13px', color: '#8b949e', padding: '4px 12px', border: '1px solid #21262d', borderRadius: '6px' },
-  headerControls: { display: 'flex', gap: '8px', alignItems: 'center' },
-  viewToggle: { display: 'flex', borderRadius: '8px', border: '1px solid #30363d', overflow: 'hidden' },
-  viewBtn: { padding: '6px 14px', border: 'none', background: 'transparent', color: '#8b949e', fontSize: '12px', fontWeight: 600, cursor: 'pointer' },
-  viewBtnActive: { padding: '6px 14px', border: 'none', background: 'rgba(38, 166, 154, 0.2)', color: '#26a69a', fontSize: '12px', fontWeight: 600, cursor: 'pointer' },
-  main: { padding: '24px 0', display: 'grid', gridTemplateColumns: '360px 1fr 320px', gap: '20px', minHeight: 'calc(100vh - 120px)' },
-  panel: { background: 'rgba(13, 17, 23, 0.6)', border: '1px solid #21262d', borderRadius: '14px', padding: '20px' },
-  panelTitle: { fontSize: '15px', fontWeight: 600, color: '#e6edf3', marginBottom: '16px' },
-  field: { marginBottom: '14px' },
-  label: { fontSize: '11px', fontWeight: 600, color: '#8b949e', textTransform: 'uppercase' as const, letterSpacing: '0.5px', marginBottom: '5px', display: 'block' },
-  select: { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #30363d', background: '#0d1117', color: '#c9d1d9', fontSize: '13px', outline: 'none' },
-  input: { width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #30363d', background: '#0d1117', color: '#c9d1d9', fontSize: '13px', outline: 'none', boxSizing: 'border-box' as const },
-  button: { width: '100%', padding: '10px', borderRadius: '8px', border: 'none', background: '#238636', color: '#fff', fontSize: '13px', fontWeight: 600, cursor: 'pointer', marginTop: '8px' },
-  buttonDisabled: { opacity: 0.5, cursor: 'not-allowed' },
-  buttonSmall: { padding: '6px 12px', borderRadius: '6px', border: '1px solid #30363d', background: 'transparent', color: '#c9d1d9', fontSize: '11px', fontWeight: 600, cursor: 'pointer' },
-  tabBar: { display: 'flex', gap: '6px', marginBottom: '16px', flexWrap: 'wrap' as const },
-  tab: { padding: '6px 12px', borderRadius: '6px', border: '1px solid #21262d', background: 'transparent', color: '#8b949e', fontSize: '11px', fontWeight: 600, cursor: 'pointer', whiteSpace: 'nowrap' as const },
-  tabActive: { background: 'rgba(38, 166, 154, 0.15)', color: '#26a69a', border: '1px solid rgba(38, 166, 154, 0.4)' },
-  sceneCard: { background: 'rgba(1, 4, 9, 0.6)', border: '1px solid #21262d', borderRadius: '8px', padding: '12px', marginBottom: '8px', cursor: 'pointer', transition: 'border-color 0.2s', fontSize: '12px' },
-  sceneCardSelected: { border: '1px solid #26a69a', background: 'rgba(38, 166, 154, 0.05)' },
-  sceneHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '4px' },
-  sceneId: { fontSize: '12px', fontWeight: 600, color: '#26a69a', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as const, maxWidth: '200px' },
-  badge: { display: 'inline-block', padding: '2px 6px', borderRadius: '4px', fontSize: '9px', fontWeight: 700, letterSpacing: '0.5px' },
-  metricGrid: { display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px', marginBottom: '14px' },
-  metricCard: { background: 'rgba(1, 4, 9, 0.6)', border: '1px solid #21262d', borderRadius: '8px', padding: '12px' },
-  metricValue: { fontSize: '16px', fontWeight: 700, color: '#26a69a', marginBottom: '2px' },
-  metricLabel: { fontSize: '10px', color: '#8b949e' },
-  placeholder: { display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', border: '2px dashed #21262d', borderRadius: '12px', color: '#484f58', fontSize: '13px', minHeight: '300px' },
-  mapContainer: { width: '100%', height: '100%', minHeight: '500px', borderRadius: '12px', overflow: 'hidden', background: '#0d1117', position: 'relative' as const },
-  backLink: { fontSize: '13px', color: '#58a6ff', textDecoration: 'none', cursor: 'pointer', marginBottom: '12px', display: 'inline-block' },
-  disclaimer: { background: 'rgba(240, 136, 62, 0.08)', border: '1px solid rgba(240, 136, 62, 0.3)', borderRadius: '8px', padding: '12px 16px', marginBottom: '20px', fontSize: '12px', color: '#c9d1d9' },
-  coordRow: { display: 'flex', gap: '10px' },
-  indexResult: { background: 'rgba(1, 4, 9, 0.6)', border: '1px solid #21262d', borderRadius: '8px', padding: '12px', marginBottom: '10px' },
-  indexHeader: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' },
-  indexName: { fontSize: '13px', fontWeight: 600, color: '#26a69a' },
-  indexValue: { fontSize: '18px', fontWeight: 700, color: '#e6edf3' },
-  timePoint: { display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid rgba(33, 38, 45, 0.5)', fontSize: '12px' },
-};
-
-function fmtCloud(pct: number): string { return pct.toFixed(1) + '%'; }
-function fmtRes(m: number): string { return m < 1 ? (m * 1000).toFixed(0) + 'm' : m.toFixed(0) + 'm'; }
-function fmtVal(v: number): string { return isNaN(v) ? 'N/A' : v.toFixed(4); }
-
-function IntegrityBadge({ state }: { state: IntegrityState }) {
-  const c = { DATA_AVAILABLE: '#3fb950', DATA_STALE: '#e3b341', DATA_UNAVAILABLE: '#f85149', LOW_CONFIDENCE: '#f0883e', INSUFFICIENT_RESOLUTION: '#f0883e', INSUFFICIENT_TEMPORAL_COVERAGE: '#f0883e', PROCESSING_FAILED: '#f85149', PROVIDER_ERROR: '#f85149' }[state] || '#8b949e';
-  return <span style={{ ...styles.badge, background: `${c}20`, color: c, border: `1px solid ${c}40` }}>{state.replace(/_/g, ' ')}</span>;
-}
-
 const PRESET_AOIS: Record<string, { south: number; west: number; north: number; east: number }> = {
   'Port of Los Angeles': { south: 33.72, west: -118.35, north: 33.80, east: -118.20 },
   'Sahel Region': { south: 12.0, west: -5.0, north: 16.0, east: 5.0 },
@@ -149,6 +100,25 @@ const PRESET_AOIS: Record<string, { south: number; west: number; north: number; 
   'Amazon Basin': { south: -5.0, west: -65.0, north: 0.0, east: -55.0 },
   'Custom': { south: 0, west: 0, north: 1, east: 1 },
 };
+
+function fmtCloud(pct: number): string { return pct.toFixed(1) + '%'; }
+function fmtRes(m: number): string { return m < 1 ? (m * 1000).toFixed(0) + 'm' : m.toFixed(0) + 'm'; }
+function fmtVal(v: number): string { return isNaN(v) ? 'N/A' : v.toFixed(4); }
+
+function IntegrityBadge({ state }: { state: IntegrityState }) {
+  const colors: Record<string, string> = {
+    DATA_AVAILABLE: '#34D399', DATA_STALE: '#FBBF24', DATA_UNAVAILABLE: '#F87171',
+    LOW_CONFIDENCE: '#FF8A65', INSUFFICIENT_RESOLUTION: '#FF8A65',
+    INSUFFICIENT_TEMPORAL_COVERAGE: '#FF8A65', PROCESSING_FAILED: '#F87171',
+    PROVIDER_ERROR: '#F87171', AUTH_REQUIRED: '#FBBF24', NO_CHANGE: '#34D399',
+  };
+  const c = colors[state] || '#9096A8';
+  return (
+    <span className="geo-badge" style={{ background: `${c}20`, color: c, border: `1px solid ${c}40` }}>
+      {state.replace(/_/g, ' ')}
+    </span>
+  );
+}
 
 const GeoExplorer: React.FC = () => {
   const [viewMode, setViewMode] = useState<ViewMode>('2d');
@@ -172,27 +142,45 @@ const GeoExplorer: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [processingIndex, setProcessingIndex] = useState(false);
   const [loadingTimeSeries, setLoadingTimeSeries] = useState(false);
+
+  // M32 multi-source state
+  const [assets, setAssets] = useState<GeoAsset[]>([]);
+  const [assetSummaries, setAssetSummaries] = useState<AssetCategorySummary[]>([]);
+  const [enabledLayers, setEnabledLayers] = useState<Set<AssetType>>(new Set(['satellite']));
+  const [selectedAsset, setSelectedAsset] = useState<GeoAsset | null>(null);
+  const [observations, setObservations] = useState<GeoAssetObservation[]>([]);
+
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<unknown>(null);
   const globeRef = useRef<HTMLDivElement>(null);
   const cameraRef = useRef<{ lat: number; lng: number; zoom: number }>({ lat: 0, lng: 0, zoom: 8 });
 
+  // Fetch M32 assets on mount
   useEffect(() => {
-    if (viewMode === '2d' && mapRef.current && !mapInstanceRef.current) {
-      const L = (window as Record<string, unknown>).L;
-      if (!L) {
-        const link = document.createElement('link');
-        link.rel = 'stylesheet';
-        link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-        document.head.appendChild(link);
-        const script = document.createElement('script');
-        script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-        script.onload = () => initMap();
-        document.head.appendChild(script);
-      } else {
-        initMap();
-      }
+    const ac = new AbortController();
+    fetchAssets(undefined, ac.signal).then(r => { setAssets(r.assets); setAssetSummaries(r.categorySummaries); });
+    fetchMultiSourceObservations(undefined, ac.signal).then(setObservations);
+    return () => ac.abort();
+  }, []);
+
+  // Leaflet map init
+  useEffect(() => {
+    if (viewMode !== '2d' || !mapRef.current || mapInstanceRef.current) return;
+
+    const L = (window as Record<string, unknown>).L;
+    if (!L) {
+      const link = document.createElement('link');
+      link.rel = 'stylesheet';
+      link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
+      document.head.appendChild(link);
+      const script = document.createElement('script');
+      script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+      script.onload = () => initMap();
+      document.head.appendChild(script);
+    } else {
+      initMap();
     }
+
     function initMap() {
       const L = (window as Record<string, unknown>).L as Record<string, unknown>;
       if (!L || !mapRef.current || mapInstanceRef.current) return;
@@ -201,19 +189,21 @@ const GeoExplorer: React.FC = () => {
       const map = (L as { map: (el: HTMLElement, opts: Record<string, unknown>) => unknown }).map(mapRef.current, {
         center: [centerLat, centerLng],
         zoom: 8,
-        zoomControl: true,
+        zoomControl: false,
         attributionControl: false,
       });
-      (L as { tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown } }).tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        maxZoom: 18,
-      }).addTo(map);
+
+      (L as { tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown } }).tileLayer(
+        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+        { maxZoom: 19, subdomains: 'abcd' }
+      ).addTo(map);
 
       const bounds = [
         [parseFloat(south), parseFloat(west)],
         [parseFloat(north), parseFloat(east)],
       ];
       const rect = (L as { rectangle: (bounds: number[][], opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown; on: (evt: string, cb: () => void) => unknown } }).rectangle(bounds, {
-        color: '#26a69a',
+        color: '#7C9EFF',
         weight: 2,
         fillOpacity: 0.15,
         draggable: true,
@@ -241,6 +231,7 @@ const GeoExplorer: React.FC = () => {
 
       mapInstanceRef.current = map;
     }
+
     return () => {
       if (mapInstanceRef.current) {
         const map = mapInstanceRef.current as Record<string, unknown>;
@@ -250,107 +241,94 @@ const GeoExplorer: React.FC = () => {
     };
   }, [viewMode, south, west, north, east]);
 
+  // Globe init (Three.js fallback for 3D)
   useEffect(() => {
-    if (viewMode === '3d' && globeRef.current && !(window as Record<string, unknown>)._auroraGlobeReady) {
-      const script = document.createElement('script');
-      script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
-      script.onload = () => {
-        setTimeout(() => {
-          if ((window as Record<string, unknown>)._auroraGlobeReady) return;
-          const container = globeRef.current;
-          if (!container) return;
-          const w = container.clientWidth;
-          const h = container.clientHeight;
-          const scene = new (window as Record<string, unknown>).THREE.Scene();
-          (scene as Record<string, unknown>).background = new (window as Record<string, unknown>).THREE.Color(0x000011);
-          const camera = new (window as Record<string, unknown>).THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
-          (camera as Record<string, unknown>).position.z = 2.5;
-          const renderer = new (window as Record<string, unknown>).THREE.WebGLRenderer({ antialias: true });
-          (renderer as Record<string, unknown>).setSize(w, h);
-          (renderer as Record<string, unknown>).setPixelRatio(window.devicePixelRatio);
-          container.appendChild((renderer as Record<string, unknown>).domElement);
-          const earthGeo = new (window as Record<string, unknown>).THREE.SphereGeometry(1, 64, 64);
-          const earthMat = new (window as Record<string, unknown>).THREE.MeshPhongMaterial({
-            color: 0x224488,
-            emissive: 0x112244,
-            specular: 0x444444,
-            shininess: 25,
-          });
-          const loader = new (window as Record<string, unknown>).THREE.TextureLoader();
-          loader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/land_ocean_ice_2048.jpg', (texture: Record<string, unknown>) => {
-            (earthMat as Record<string, unknown>).map = texture;
-            (earthMat as Record<string, unknown>).needsUpdate = true;
-          });
-          const earth = new (window as Record<string, unknown>).THREE.Mesh(earthGeo, earthMat);
-          (scene as Record<string, unknown>).add(earth);
-          const wireGeo = new (window as Record<string, unknown>).THREE.SphereGeometry(1.001, 32, 32);
-          const wireMat = new (window as Record<string, unknown>).THREE.MeshBasicMaterial({ color: 0x26a69a, wireframe: true, transparent: true, opacity: 0.08 });
-          const wire = new (window as Record<string, unknown>).THREE.Mesh(wireGeo, wireMat);
-          (scene as Record<string, unknown>).add(wire);
-          (scene as Record<string, unknown>).add(new (window as Record<string, unknown>).THREE.AmbientLight(0x404040, 0.6));
-          const dirLight = new (window as Record<string, unknown>).THREE.DirectionalLight(0xffffff, 0.8);
-          (dirLight as Record<string, unknown>).position.set(5, 3, 5);
-          (scene as Record<string, unknown>).add(dirLight);
-          let dragging = false;
-          let prevMouse = { x: 0, y: 0 };
-          const canvas = (renderer as Record<string, unknown>).domElement as HTMLElement;
-          canvas.addEventListener('mousedown', (e: MouseEvent) => { dragging = true; prevMouse = { x: e.clientX, y: e.clientY }; });
-          canvas.addEventListener('mousemove', (e: MouseEvent) => {
-            if (!dragging) return;
-            (earth as Record<string, unknown>).rotation.y += (e.clientX - prevMouse.x) * 0.005;
-            (earth as Record<string, unknown>).rotation.x += (e.clientY - prevMouse.y) * 0.005;
-            (wire as Record<string, unknown>).rotation.y = (earth as Record<string, unknown>).rotation.y;
-            (wire as Record<string, unknown>).rotation.x = (earth as Record<string, unknown>).rotation.x;
-            prevMouse = { x: e.clientX, y: e.clientY };
-          });
-          canvas.addEventListener('mouseup', () => { dragging = false; });
-          canvas.addEventListener('mouseleave', () => { dragging = false; });
-          canvas.addEventListener('wheel', (e: WheelEvent) => {
-            e.preventDefault();
-            const z = (camera as Record<string, unknown>).position as Record<string, number>;
-            z.z = Math.max(1.1, Math.min(10, z.z + e.deltaY * 0.001));
-          }, { passive: false });
-          let touchStart: { x: number; y: number } | null = null;
-          canvas.addEventListener('touchstart', (e: TouchEvent) => {
-            if (e.touches.length === 1) touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-          });
-          canvas.addEventListener('touchmove', (e: TouchEvent) => {
-            if (!touchStart || e.touches.length !== 1) return;
-            e.preventDefault();
-            (earth as Record<string, unknown>).rotation.y += (e.touches[0].clientX - touchStart.x) * 0.005;
-            (earth as Record<string, unknown>).rotation.x += (e.touches[0].clientY - touchStart.y) * 0.005;
-            (wire as Record<string, unknown>).rotation.y = (earth as Record<string, unknown>).rotation.y;
-            (wire as Record<string, unknown>).rotation.x = (earth as Record<string, unknown>).rotation.x;
-            touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
-          }, { passive: false });
-          canvas.addEventListener('touchend', () => { touchStart = null; });
-          (window as Record<string, unknown>)._auroraGlobeReady = true;
-          let animId = 0;
-          const animate = () => {
-            animId = requestAnimationFrame(animate);
-            (renderer as Record<string, unknown>).render(scene, camera);
-          };
-          animate();
-          // Store cleanup function for unmount
-          (window as Record<string, unknown>)._auroraGlobeCleanup = () => {
-            cancelAnimationFrame(animId);
-            canvas.removeEventListener('mousedown', () => {});
-            canvas.removeEventListener('mousemove', () => {});
-            canvas.removeEventListener('mouseup', () => {});
-            canvas.removeEventListener('mouseleave', () => {});
-            canvas.removeEventListener('wheel', () => {});
-            canvas.removeEventListener('touchstart', () => {});
-            canvas.removeEventListener('touchmove', () => {});
-            canvas.removeEventListener('touchend', () => {});
-            (renderer as Record<string, unknown>).dispose();
-            if (container.contains((renderer as Record<string, unknown>).domElement)) {
-              container.removeChild((renderer as Record<string, unknown>).domElement);
-            }
-          };
-        }, 100);
-      };
-      document.head.appendChild(script);
-    }
+    if (viewMode !== '3d' || !globeRef.current || (window as Record<string, unknown>)._auroraGlobeReady) return;
+
+    const container = globeRef.current;
+    const script = document.createElement('script');
+    script.src = 'https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js';
+    script.onload = () => {
+      setTimeout(() => {
+        if ((window as Record<string, unknown>)._auroraGlobeReady || !container) return;
+        const w = container.clientWidth;
+        const h = container.clientHeight;
+        const THREE = (window as Record<string, unknown>).THREE as Record<string, unknown>;
+        const scene = new THREE.Scene();
+        scene.background = new THREE.Color(0x000011);
+        const camera = new THREE.PerspectiveCamera(45, w / h, 0.1, 1000);
+        camera.position.z = 2.5;
+        const renderer = new THREE.WebGLRenderer({ antialias: true });
+        renderer.setSize(w, h);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
+
+        const earthGeo = new THREE.SphereGeometry(1, 64, 64);
+        const earthMat = new THREE.MeshPhongMaterial({ color: 0x224488, emissive: 0x112244, specular: 0x444444, shininess: 25 });
+        const loader = new THREE.TextureLoader();
+        loader.load('https://eoimages.gsfc.nasa.gov/images/imagerecords/57000/57747/land_ocean_ice_2048.jpg', (texture: Record<string, unknown>) => {
+          earthMat.map = texture;
+          earthMat.needsUpdate = true;
+        });
+        const earth = new THREE.Mesh(earthGeo, earthMat);
+        scene.add(earth);
+        const wireGeo = new THREE.SphereGeometry(1.001, 32, 32);
+        const wireMat = new THREE.MeshBasicMaterial({ color: 0x7C9EFF, wireframe: true, transparent: true, opacity: 0.08 });
+        const wire = new THREE.Mesh(wireGeo, wireMat);
+        scene.add(wire);
+        scene.add(new THREE.AmbientLight(0x404040, 0.6));
+        const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+        dirLight.position.set(5, 3, 5);
+        scene.add(dirLight);
+
+        let dragging = false;
+        let prevMouse = { x: 0, y: 0 };
+        const canvas = renderer.domElement as HTMLElement;
+        canvas.addEventListener('mousedown', (e: MouseEvent) => { dragging = true; prevMouse = { x: e.clientX, y: e.clientY }; });
+        canvas.addEventListener('mousemove', (e: MouseEvent) => {
+          if (!dragging) return;
+          earth.rotation.y += (e.clientX - prevMouse.x) * 0.005;
+          earth.rotation.x += (e.clientY - prevMouse.y) * 0.005;
+          wire.rotation.y = earth.rotation.y;
+          wire.rotation.x = earth.rotation.x;
+          prevMouse = { x: e.clientX, y: e.clientY };
+        });
+        canvas.addEventListener('mouseup', () => { dragging = false; });
+        canvas.addEventListener('mouseleave', () => { dragging = false; });
+        canvas.addEventListener('wheel', (e: WheelEvent) => {
+          e.preventDefault();
+          camera.position.z = Math.max(1.1, Math.min(10, camera.position.z + e.deltaY * 0.001));
+        }, { passive: false });
+
+        let touchStart: { x: number; y: number } | null = null;
+        canvas.addEventListener('touchstart', (e: TouchEvent) => {
+          if (e.touches.length === 1) touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        });
+        canvas.addEventListener('touchmove', (e: TouchEvent) => {
+          if (!touchStart || e.touches.length !== 1) return;
+          e.preventDefault();
+          earth.rotation.y += (e.touches[0].clientX - touchStart.x) * 0.005;
+          earth.rotation.x += (e.touches[0].clientY - touchStart.y) * 0.005;
+          wire.rotation.y = earth.rotation.y;
+          wire.rotation.x = earth.rotation.x;
+          touchStart = { x: e.touches[0].clientX, y: e.touches[0].clientY };
+        }, { passive: false });
+        canvas.addEventListener('touchend', () => { touchStart = null; });
+
+        (window as Record<string, unknown>)._auroraGlobeReady = true;
+        let animId = 0;
+        const animate = () => { animId = requestAnimationFrame(animate); renderer.render(scene, camera); };
+        animate();
+
+        (window as Record<string, unknown>)._auroraGlobeCleanup = () => {
+          cancelAnimationFrame(animId);
+          renderer.dispose();
+          if (container.contains(renderer.domElement)) container.removeChild(renderer.domElement);
+        };
+      }, 100);
+    };
+    document.head.appendChild(script);
+
     return () => {
       const cleanup = (window as Record<string, unknown>)._auroraGlobeCleanup;
       if (typeof cleanup === 'function') {
@@ -399,28 +377,21 @@ const GeoExplorer: React.FC = () => {
           const resp = await fetch(`${API_BASE}/api/v1/geo/index`, {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
-              provider: scene.provider,
-              dataset: scene.dataset,
+              provider: scene.provider, dataset: scene.dataset,
               aoi_name: searchResult.aoi.name,
               south: searchResult.aoi.south, west: searchResult.aoi.west,
               north: searchResult.aoi.north, east: searchResult.aoi.east,
-              date: scene.acquisition_time,
-              index: idx,
+              date: scene.acquisition_time, index: idx,
             }),
           });
           if (resp.ok) {
             const data = await resp.json();
             results.push({
-              name: idx,
-              supported: data.supported || false,
-              mean: data.statistics?.mean ?? NaN,
-              std: data.statistics?.std ?? NaN,
-              min_val: data.statistics?.min ?? NaN,
-              max_val: data.statistics?.max ?? NaN,
-              valid_count: data.statistics?.count ?? 0,
-              total_count: data.statistics?.total_pixels ?? 0,
-              formula: data.formula || '',
-              source_bands: data.source_bands || [],
+              name: idx, supported: data.supported || false,
+              mean: data.statistics?.mean ?? NaN, std: data.statistics?.std ?? NaN,
+              min_val: data.statistics?.min ?? NaN, max_val: data.statistics?.max ?? NaN,
+              valid_count: data.statistics?.count ?? 0, total_count: data.statistics?.total_pixels ?? 0,
+              formula: data.formula || '', source_bands: data.source_bands || [],
               uncertainty: data.uncertainty || data.error || '',
               integrity_state: data.integrity_state || 'DATA_UNAVAILABLE',
             });
@@ -452,8 +423,7 @@ const GeoExplorer: React.FC = () => {
         provider: before.provider, dataset: before.dataset,
         before_time: before.acquisition_time, after_time: after.acquisition_time,
         before_bands: before.bands, after_bands: after.bands,
-        before_values: {},
-        after_values: {},
+        before_values: {}, after_values: {},
         feature: 'NDVI', threshold: 0.01,
       };
       const resp = await fetch(`${API_BASE}/api/v1/geo/change-detection`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -474,8 +444,7 @@ const GeoExplorer: React.FC = () => {
         south: parseFloat(south), west: parseFloat(west),
         north: parseFloat(north), east: parseFloat(east),
         start_date: startDate, end_date: endDate,
-        index: 'NDVI',
-        cloud_threshold: maxCloud,
+        index: 'NDVI', cloud_threshold: maxCloud,
       };
       const resp = await fetch(`${API_BASE}/api/v1/geo/timeseries`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
       if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
@@ -492,306 +461,352 @@ const GeoExplorer: React.FC = () => {
     return Math.abs((n - s) * 111.32 * (e - w) * 111.32 * Math.cos(latRad));
   };
 
+  const handleToggleLayer = (type: AssetType) => {
+    setEnabledLayers(prev => {
+      const next = new Set(prev);
+      if (next.has(type)) next.delete(type); else next.add(type);
+      return next;
+    });
+  };
+
   return (
-    <div style={styles.page}>
-      <header style={styles.header}>
-        <div style={styles.headerInner}>
-          <span style={styles.logo}>AURORA <span style={styles.logoAccent}>GEO</span></span>
-          <div style={styles.headerControls}>
-            <div style={styles.viewToggle}>
-              <button style={viewMode === '2d' ? styles.viewBtnActive : styles.viewBtn} onClick={() => setViewMode('2d')}>2D Map</button>
-              <button style={viewMode === '3d' ? styles.viewBtnActive : styles.viewBtn} onClick={() => setViewMode('3d')}>3D Globe</button>
-            </div>
-            <span style={styles.headerTag}>Earth Observation</span>
+    <div className="aur-geo-wrap">
+      <div className="geo-layout">
+        {/* Mode Selector Bar */}
+        <div className="geo-mode-bar">
+          {(['2d', '3d', 'eo'] as ViewMode[]).map(mode => (
+            <button
+              key={mode}
+              className={`geo-mode-btn ${viewMode === mode ? 'geo-mode-btn-active' : ''}`}
+              onClick={() => setViewMode(mode)}
+            >
+              {mode === '2d' ? '2D Map' : mode === '3d' ? '3D Globe' : 'Earth Obs'}
+            </button>
+          ))}
+        </div>
+
+        {/* Visualization Body */}
+        <div className="geo-body">
+          {/* Map / Globe Area */}
+          <div className="geo-map-area">
+            {viewMode === '2d' && <div ref={mapRef} />}
+            {(viewMode === '3d' || viewMode === 'eo') && <div ref={globeRef} />}
           </div>
-        </div>
-      </header>
 
-      <main style={styles.container}>
-        <a style={styles.backLink} href="/">← Dashboard</a>
-        <div style={styles.disclaimer}>
-          <strong style={{ color: '#f0883e' }}>EXPERIMENTAL — Research Evidence Only.</strong> Satellite observations are NOT predictions. All data retains full provenance. No targeting.
-        </div>
-
-        <div style={styles.main}>
-          <div>
-            <div style={styles.panel}>
-              <div style={styles.panelTitle}>Area of Interest</div>
-              <div style={{ ...styles.metricCard, marginBottom: '14px' }}>
-                <div style={{ fontSize: '12px', color: '#8b949e' }}>AOI: {aoiName}</div>
-                <div style={{ fontSize: '11px', color: '#c9d1d9', marginTop: '4px' }}>
-                  ({parseFloat(south).toFixed(2)}°, {parseFloat(west).toFixed(2)}°) → ({parseFloat(north).toFixed(2)}°, {parseFloat(east).toFixed(2)}°)
+          {/* Floating Left Panel — AOI + Search Controls */}
+          <div className="geo-float-left">
+            <div className="aur-glass aur-glass--md aur-glass--radial geo-float-panel" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+              <div className="geo-float-panel-header">
+                <span className="geo-float-panel-title">Area of Interest</span>
+                <span style={{ fontSize: 10, color: 'var(--aur-ink-faint)' }}>{aoiName}</span>
+              </div>
+              <div className="geo-float-panel-body">
+                <div className="geo-metric-grid">
+                  <div className="geo-metric-card">
+                    <div className="geo-metric-value">{calcArea().toFixed(0)}</div>
+                    <div className="geo-metric-label">Area km²</div>
+                  </div>
+                  <div className="geo-metric-card">
+                    <div className="geo-metric-value" style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                      ({parseFloat(south).toFixed(2)}°, {parseFloat(west).toFixed(2)}°)
+                    </div>
+                    <div className="geo-metric-label">SW Corner</div>
+                  </div>
                 </div>
-                <div style={{ fontSize: '11px', color: '#26a69a', marginTop: '2px' }}>Area: ~{calcArea().toFixed(0)} km²</div>
-              </div>
 
-              <div style={styles.field}>
-                <label style={styles.label}>Presets</label>
-                <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                  {Object.keys(PRESET_AOIS).map(name => (
-                    <button key={name} style={{ ...styles.buttonSmall, fontSize: '10px', padding: '3px 8px' }} onClick={() => handlePreset(name)}>{name}</button>
-                  ))}
+                <div className="geo-field">
+                  <label className="geo-label">Presets</label>
+                  <div className="geo-preset-wrap">
+                    {Object.keys(PRESET_AOIS).map(name => (
+                      <button key={name} className="geo-btn geo-btn-secondary geo-btn-sm" onClick={() => handlePreset(name)}>{name}</button>
+                    ))}
+                  </div>
                 </div>
-              </div>
 
-              <div style={styles.coordRow}>
-                <div style={styles.field}><label style={styles.label}>South</label><input style={styles.input} type="number" step="0.01" value={south} onChange={e => setSouth(e.target.value)} /></div>
-                <div style={styles.field}><label style={styles.label}>West</label><input style={styles.input} type="number" step="0.01" value={west} onChange={e => setWest(e.target.value)} /></div>
-              </div>
-              <div style={styles.coordRow}>
-                <div style={styles.field}><label style={styles.label}>North</label><input style={styles.input} type="number" step="0.01" value={north} onChange={e => setNorth(e.target.value)} /></div>
-                <div style={styles.field}><label style={styles.label}>East</label><input style={styles.input} type="number" step="0.01" value={east} onChange={e => setEast(e.target.value)} /></div>
-              </div>
-
-              <hr style={{ border: 'none', borderTop: '1px solid #21262d', margin: '12px 0' }} />
-
-              <div style={styles.field}>
-                <label style={styles.label}>Date Range</label>
-                <div style={styles.coordRow}>
-                  <input style={styles.input} type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
-                  <input style={styles.input} type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                <div className="geo-coord-row">
+                  <div className="geo-field"><label className="geo-label">South</label><input className="geo-input" type="number" step="0.01" value={south} onChange={e => setSouth(e.target.value)} /></div>
+                  <div className="geo-field"><label className="geo-label">West</label><input className="geo-input" type="number" step="0.01" value={west} onChange={e => setWest(e.target.value)} /></div>
                 </div>
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>Max Cloud ({maxCloud}%)</label>
-                <input style={{ width: '100%', accentColor: '#26a69a' }} type="range" min="0" max="100" step="5" value={maxCloud} onChange={e => setMaxCloud(Number(e.target.value))} />
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>Provider</label>
-                <select style={styles.select} value={provider} onChange={e => setProvider(e.target.value)}>
-                  <option value="">All</option>
-                  <option value="copernicus_sentinel">Copernicus Sentinel</option>
-                  <option value="nasa_gibs">NASA GIBS</option>
-                  <option value="skyfi">SkyFi</option>
-                </select>
-              </div>
-
-              <div style={styles.field}>
-                <label style={styles.label}>Dataset</label>
-                <select style={styles.select} value={dataset} onChange={e => setDataset(e.target.value)}>
-                  <option value="">Auto</option>
-                  <option value="S2L2A">Sentinel-2 L2A</option>
-                  <option value="S2L1C">Sentinel-2 L1C</option>
-                  <option value="S1GRD">Sentinel-1 GRD</option>
-                </select>
-              </div>
-
-              <button style={{ ...styles.button, ...(loading ? styles.buttonDisabled : {}) }} onClick={handleSearch} disabled={loading}>
-                {loading ? 'Searching...' : 'Search Scenes'}
-              </button>
-              {error && <div style={{ color: '#f85149', fontSize: '12px', marginTop: '10px' }}>{error}</div>}
-
-              {selectedScenes.length > 0 && (
-                <div style={{ marginTop: '12px' }}>
-                  <div style={{ fontSize: '11px', color: '#8b949e', marginBottom: '6px' }}>Selected: {selectedScenes.length}/2 scenes</div>
-                  {selectedScenes.length === 2 && (
-                    <button style={{ ...styles.button, background: '#1f6feb', marginBottom: '6px' }} onClick={handleDetectChange} disabled={loading}>
-                      Detect Change
-                    </button>
-                  )}
-                  {selectedScenes.length >= 1 && (
-                    <button style={{ ...styles.button, background: '#8957e5' }} onClick={handleComputeIndices} disabled={processingIndex}>
-                      {processingIndex ? 'Computing...' : 'Compute Indices'}
-                    </button>
-                  )}
+                <div className="geo-coord-row">
+                  <div className="geo-field"><label className="geo-label">North</label><input className="geo-input" type="number" step="0.01" value={north} onChange={e => setNorth(e.target.value)} /></div>
+                  <div className="geo-field"><label className="geo-label">East</label><input className="geo-input" type="number" step="0.01" value={east} onChange={e => setEast(e.target.value)} /></div>
                 </div>
-              )}
 
-              <div style={{ marginTop: '12px' }}>
-                <button style={{ ...styles.button, background: '#21262d', border: '1px solid #30363d' }} onClick={handleTimeSeries} disabled={loadingTimeSeries}>
-                  {loadingTimeSeries ? 'Loading Time Series...' : 'Load Time Series'}
+                <hr className="geo-separator" />
+
+                <div className="geo-field">
+                  <label className="geo-label">Date Range</label>
+                  <div className="geo-coord-row">
+                    <input className="geo-input" type="date" value={startDate} onChange={e => setStartDate(e.target.value)} />
+                    <input className="geo-input" type="date" value={endDate} onChange={e => setEndDate(e.target.value)} />
+                  </div>
+                </div>
+
+                <div className="geo-field">
+                  <label className="geo-label">Max Cloud ({maxCloud}%)</label>
+                  <input style={{ width: '100%', accentColor: 'var(--aur-accent)' }} type="range" min="0" max="100" step="5" value={maxCloud} onChange={e => setMaxCloud(Number(e.target.value))} />
+                </div>
+
+                <div className="geo-field">
+                  <label className="geo-label">Provider</label>
+                  <select className="geo-select" value={provider} onChange={e => setProvider(e.target.value)}>
+                    <option value="">All</option>
+                    <option value="copernicus_sentinel">Copernicus Sentinel</option>
+                    <option value="nasa_gibs">NASA GIBS</option>
+                    <option value="skyfi">SkyFi</option>
+                  </select>
+                </div>
+
+                <div className="geo-field">
+                  <label className="geo-label">Dataset</label>
+                  <select className="geo-select" value={dataset} onChange={e => setDataset(e.target.value)}>
+                    <option value="">Auto</option>
+                    <option value="S2L2A">Sentinel-2 L2A</option>
+                    <option value="S2L1C">Sentinel-2 L1C</option>
+                    <option value="S1GRD">Sentinel-1 GRD</option>
+                  </select>
+                </div>
+
+                <button className="geo-btn" onClick={handleSearch} disabled={loading}>
+                  {loading ? 'Searching...' : 'Search Scenes'}
+                </button>
+                {error && <div style={{ color: 'var(--aur-negative)', fontSize: 11, marginTop: 8 }}>{error}</div>}
+
+                {selectedScenes.length > 0 && (
+                  <div style={{ marginTop: 10 }}>
+                    <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', marginBottom: 6 }}>Selected: {selectedScenes.length}/2 scenes</div>
+                    {selectedScenes.length === 2 && (
+                      <button className="geo-btn geo-btn-blue" style={{ marginBottom: 4 }} onClick={handleDetectChange} disabled={loading}>
+                        Detect Change
+                      </button>
+                    )}
+                    {selectedScenes.length >= 1 && (
+                      <button className="geo-btn geo-btn-purple" onClick={handleComputeIndices} disabled={processingIndex}>
+                        {processingIndex ? 'Computing...' : 'Compute Indices'}
+                      </button>
+                    )}
+                  </div>
+                )}
+
+                <button className="geo-btn geo-btn-secondary" style={{ marginTop: 8 }} onClick={handleTimeSeries} disabled={loadingTimeSeries}>
+                  {loadingTimeSeries ? 'Loading...' : 'Load Time Series'}
                 </button>
               </div>
             </div>
           </div>
 
-          <div style={styles.mapContainer}>
-            {viewMode === '2d' ? (
-              <div ref={mapRef} style={{ width: '100%', height: '100%', minHeight: '500px', borderRadius: '12px' }} />
-            ) : (
-              <div ref={globeRef} style={{ width: '100%', height: '100%', minHeight: '500px' }} />
-            )}
-          </div>
-
-          <div>
-            <div style={styles.panel}>
-              <div style={styles.tabBar}>
-                {(['scenes', 'indices', 'change', 'timeseries', 'provenance'] as ActivePanel[]).map(tab => (
-                  <button key={tab} style={{ ...styles.tab, ...(activePanel === tab ? styles.tabActive : {}) }} onClick={() => setActivePanel(tab)}>
-                    {tab === 'scenes' ? `Scenes (${searchResult?.scenes.length || 0})` : tab.charAt(0).toUpperCase() + tab.slice(1)}
-                  </button>
-                ))}
+          {/* Floating Right Panel — Asset Layers + Inspector */}
+          <div className="geo-float-right">
+            <div className="aur-glass aur-glass--md aur-glass--radial geo-float-panel" style={{ maxHeight: 'calc(100vh - 180px)' }}>
+              <div className="geo-float-panel-header">
+                <span className="geo-float-panel-title">Data Sources</span>
               </div>
-
-              {activePanel === 'scenes' && (
-                <div style={{ maxHeight: '500px', overflowY: 'auto' }}>
-                  {!searchResult ? <div style={styles.placeholder}>Search for scenes</div>
-                    : searchResult.scenes.length === 0 ? <div style={styles.placeholder}>No scenes found</div>
-                    : searchResult.scenes.map(scene => (
-                      <div key={scene.scene_id} style={{ ...styles.sceneCard, ...(selectedScenes.some(s => s.scene_id === scene.scene_id) ? styles.sceneCardSelected : {}) }} onClick={() => toggleSceneSelection(scene)}>
-                        <div style={styles.sceneHeader}>
-                          <span style={styles.sceneId}>{scene.scene_id.slice(0, 30)}</span>
-                          <span style={{ ...styles.badge, background: scene.quality_grade === 'GOOD' ? '#3fb95020' : '#e3b34120', color: scene.quality_grade === 'GOOD' ? '#3fb950' : '#e3b341', border: `1px solid ${scene.quality_grade === 'GOOD' ? '#3fb95040' : '#e3b34140'}` }}>{scene.quality_grade}</span>
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#8b949e' }}>{scene.dataset} · {new Date(scene.acquisition_time).toLocaleDateString()}</div>
-                        <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '2px' }}>Cloud: {fmtCloud(scene.cloud_pct)} · {fmtRes(scene.resolution_m)} · {scene.bands.length} bands</div>
-                      </div>
-                    ))
-                  }
-                </div>
-              )}
-
-              {activePanel === 'indices' && (
-                <div>
-                  {indices.length === 0 ? <div style={styles.placeholder}>Select scenes and compute indices</div>
-                    : indices.map((idx, i) => (
-                      <div key={i} style={styles.indexResult}>
-                        <div style={styles.indexHeader}>
-                          <span style={styles.indexName}>{idx.name}</span>
-                          <IntegrityBadge state={idx.integrity_state} />
-                        </div>
-                        <div style={styles.indexValue}>
-                          {idx.supported ? fmtVal(idx.mean) : (
-                            idx.integrity_state === 'DATA_UNAVAILABLE' ? 'DATA_UNAVAILABLE' :
-                            idx.integrity_state === 'AUTH_REQUIRED' ? 'AUTH_REQUIRED' :
-                            idx.integrity_state === 'PROVIDER_ERROR' ? 'PROVIDER_ERROR' :
-                            'UNSUPPORTED'
-                          )}
-                        </div>
-                        <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '4px' }}>
-                          {idx.formula && <>Formula: {idx.formula}<br /></>}
-                          {idx.source_bands.length > 0 && <>Bands: {idx.source_bands.join(', ')}<br /></>}
-                          {idx.valid_count > 0 && <>Valid pixels: {idx.valid_count.toLocaleString()} / {idx.total_count.toLocaleString()}<br /></>}
-                          {idx.integrity_state === 'DATA_UNAVAILABLE' && (
-                            <span style={{ color: '#f0883e' }}>
-                              ⚠ Required spectral bands unavailable from selected source.
-                              GIBS provides RGB visualization imagery only.
-                            </span>
-                          )}
-                          {idx.integrity_state === 'AUTH_REQUIRED' && (
-                            <span style={{ color: '#f0883e' }}>⚠ Authentication required for this provider.</span>
-                          )}
-                          {idx.uncertainty && idx.integrity_state !== 'DATA_UNAVAILABLE' && (
-                            <span style={{ color: '#f0883e' }}>⚠ {idx.uncertainty}</span>
-                          )}
-                        </div>
-                      </div>
-                    ))
-                  }
-                </div>
-              )}
-
-              {activePanel === 'change' && (
-                <div>
-                  {changeResult ? (
-                    <div>
-                      <div style={styles.metricGrid}>
-                        <div style={styles.metricCard}>
-                          <div style={{ ...styles.metricValue, color: changeResult.change_detected ? '#f0883e' : '#3fb950' }}>
-                            {changeResult.change_detected ? 'CHANGE DETECTED' : 'NO CHANGE'}
-                          </div>
-                          <div style={styles.metricLabel}>Result</div>
-                        </div>
-                        <div style={styles.metricCard}>
-                          <div style={styles.metricValue}>{changeResult.confidence != null ? (changeResult.confidence * 100).toFixed(0) + '%' : 'N/A'}</div>
-                          <div style={styles.metricLabel}>Confidence</div>
-                        </div>
-                      </div>
-                      <IntegrityBadge state={changeResult.integrity_state} />
-                      {changeResult.changed_area_km2 != null && (
-                        <div style={{ fontSize: '12px', color: '#c9d1d9', marginTop: '8px' }}>
-                          Changed area: {changeResult.changed_area_km2.toFixed(2)} km² ({changeResult.spatial_extent_pct?.toFixed(1)}%)
-                        </div>
-                      )}
-                      {changeResult.uncertainty && (
-                        <div style={{ fontSize: '11px', color: '#8b949e', marginTop: '8px', padding: '8px', background: 'rgba(1,4,9,0.4)', borderRadius: '6px' }}>
-                          <strong>Uncertainty:</strong> {changeResult.uncertainty}
-                        </div>
-                      )}
-                    </div>
-                  ) : <div style={styles.placeholder}>Select 2 scenes and click Detect Change</div>}
-                </div>
-              )}
-
-              {activePanel === 'timeseries' && (
-                <div>
-                  {timeSeries ? (
-                    <div>
-                      {timeSeries.statistics && Object.keys(timeSeries.statistics).length > 0 && (
-                        <div style={styles.metricGrid}>
-                          <div style={styles.metricCard}>
-                            <div style={styles.metricValue}>{timeSeries.statistics.count}</div>
-                            <div style={styles.metricLabel}>Observations</div>
-                          </div>
-                          <div style={styles.metricCard}>
-                            <div style={styles.metricValue}>{fmtVal(timeSeries.statistics.mean)}</div>
-                            <div style={styles.metricLabel}>Mean {timeSeries.index}</div>
-                          </div>
-                          <div style={styles.metricCard}>
-                            <div style={styles.metricValue}>{fmtVal(timeSeries.statistics.min)}</div>
-                            <div style={styles.metricLabel}>Min</div>
-                          </div>
-                          <div style={styles.metricCard}>
-                            <div style={styles.metricValue}>{fmtVal(timeSeries.statistics.max)}</div>
-                            <div style={styles.metricLabel}>Max</div>
-                          </div>
-                        </div>
-                      )}
-                      {!timeSeries.statistics || Object.keys(timeSeries.statistics).length === 0 ? (
-                        <div style={{ padding: '12px', background: 'rgba(240, 136, 62, 0.08)', borderRadius: '8px', fontSize: '12px', color: '#f0883e' }}>
-                          ⚠ No valid index values in time series.
-                          GIBS provides RGB visualization imagery only.
-                          Scientific spectral indices require NIR/SWIR bands.
-                        </div>
-                      ) : null}
-                      <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                        {timeSeries.observations.map((pt: Record<string, unknown>, i: number) => (
-                          <div key={i} style={styles.timePoint}>
-                            <span>{new Date(pt.date as string).toLocaleDateString()}</span>
-                            <span style={{ color: pt.value != null ? '#26a69a' : '#f0883e', fontWeight: 600 }}>
-                              {pt.value != null ? (pt.value as number).toFixed(4) : 'DATA_UNAVAILABLE'}
-                            </span>
-                            <span style={{ color: '#8b949e', fontSize: '10px' }}>
-                              {(pt.integrity_state as string) || 'UNKNOWN'}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                      <div style={{ fontSize: '10px', color: '#8b949e', marginTop: '8px' }}>
-                        {timeSeries.uncertainty}
-                      </div>
-                    </div>
-                  ) : (
-                    <div style={styles.placeholder}>
-                      {loadingTimeSeries ? 'Loading...' : 'Click "Load Time Series" to fetch observations'}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activePanel === 'provenance' && (
-                <div>
-                  {selectedScenes.length > 0 ? selectedScenes.map(scene => (
-                    <div key={scene.scene_id} style={{ ...styles.metricCard, marginBottom: '10px' }}>
-                      <div style={{ fontSize: '12px', color: '#c9d1d9', lineHeight: 1.8 }}>
-                        <div><strong>Provider:</strong> {scene.provider}</div>
-                        <div><strong>Dataset:</strong> {scene.dataset}</div>
-                        <div><strong>Scene:</strong> {scene.scene_id}</div>
-                        <div><strong>Acquired:</strong> {new Date(scene.acquisition_time).toISOString()}</div>
-                        <div><strong>Resolution:</strong> {fmtRes(scene.resolution_m)}</div>
-                        <div><strong>Bands:</strong> {scene.bands.join(', ')}</div>
-                        <div><strong>Cloud:</strong> {fmtCloud(scene.cloud_pct)}</div>
-                      </div>
-                    </div>
-                  )) : <div style={styles.placeholder}>Select a scene to view provenance</div>}
-                </div>
-              )}
+              <div className="geo-float-panel-body">
+                <AssetLayerControl summaries={assetSummaries} enabled={enabledLayers} onToggle={handleToggleLayer} />
+                {selectedAsset && (
+                  <div style={{ marginTop: 10 }}>
+                    {buildAssetInspectorBody(selectedAsset)}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
+
+          {/* Disclaimer */}
+          <div className="geo-disclaimer">
+            <strong style={{ color: 'var(--aur-accent-2)' }}>EXPERIMENTAL</strong> — Research Evidence Only. Satellite observations are NOT predictions. No targeting.
+          </div>
         </div>
-      </main>
+
+        {/* Bottom Tabs */}
+        <div className="geo-bottom-tabs">
+          <div className="geo-tab-bar">
+            {(['scenes', 'indices', 'change', 'timeseries', 'provenance', 'assets', 'evidence'] as ActivePanel[]).map(tab => (
+              <button key={tab} className={`geo-tab ${activePanel === tab ? 'geo-tab-active' : ''}`} onClick={() => setActivePanel(tab)}>
+                {tab === 'scenes' ? `Scenes (${searchResult?.scenes.length || 0})`
+                  : tab === 'assets' ? `Assets (${assets.length})`
+                  : tab === 'evidence' ? `Evidence (${observations.length})`
+                  : tab.charAt(0).toUpperCase() + tab.slice(1)}
+              </button>
+            ))}
+            <div className="geo-tab-spacer" />
+          </div>
+
+          <div className="geo-tab-content">
+            {/* Scenes Tab */}
+            {activePanel === 'scenes' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: '6px 8px' }}>
+                {!searchResult
+                  ? <div className="geo-placeholder">Search for scenes</div>
+                  : searchResult.scenes.length === 0
+                    ? <div className="geo-placeholder">No scenes found</div>
+                    : searchResult.scenes.map(scene => (
+                      <div key={scene.scene_id} className={`geo-scene-card ${selectedScenes.some(s => s.scene_id === scene.scene_id) ? 'geo-scene-card-selected' : ''}`} onClick={() => toggleSceneSelection(scene)}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 3 }}>
+                          <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--aur-accent)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 200 }}>{scene.scene_id.slice(0, 30)}</span>
+                          <IntegrityBadge state={scene.quality_grade === 'GOOD' ? 'DATA_AVAILABLE' : 'DATA_STALE'} />
+                        </div>
+                        <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)' }}>{scene.dataset} · {new Date(scene.acquisition_time).toLocaleDateString()}</div>
+                        <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', marginTop: 1 }}>Cloud: {fmtCloud(scene.cloud_pct)} · {fmtRes(scene.resolution_m)} · {scene.bands.length} bands</div>
+                      </div>
+                    ))
+                }
+              </div>
+            )}
+
+            {/* Indices Tab */}
+            {activePanel === 'indices' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: '6px 8px' }}>
+                {indices.length === 0
+                  ? <div className="geo-placeholder">Select scenes and compute indices</div>
+                  : indices.map((idx, i) => (
+                    <div key={i} className="geo-scene-card" style={{ cursor: 'default' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: 'var(--aur-accent)' }}>{idx.name}</span>
+                        <IntegrityBadge state={idx.integrity_state} />
+                      </div>
+                      <div style={{ fontSize: 16, fontWeight: 700, color: 'var(--aur-ink)', fontFamily: "'Space Grotesk', monospace" }}>
+                        {idx.supported ? fmtVal(idx.mean) : idx.integrity_state}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', marginTop: 4 }}>
+                        {idx.formula && <>Formula: {idx.formula}<br /></>}
+                        {idx.source_bands.length > 0 && <>Bands: {idx.source_bands.join(', ')}<br /></>}
+                        {idx.valid_count > 0 && <>Valid pixels: {idx.valid_count.toLocaleString()} / {idx.total_count.toLocaleString()}<br /></>}
+                        {idx.integrity_state === 'DATA_UNAVAILABLE' && (
+                          <span style={{ color: 'var(--aur-accent-2)' }}>Required spectral bands unavailable from selected source. GIBS provides RGB visualization imagery only.</span>
+                        )}
+                        {idx.integrity_state === 'AUTH_REQUIRED' && (
+                          <span style={{ color: 'var(--aur-accent-2)' }}>Authentication required for this provider.</span>
+                        )}
+                        {idx.uncertainty && idx.integrity_state !== 'DATA_UNAVAILABLE' && (
+                          <span style={{ color: 'var(--aur-accent-2)' }}>{idx.uncertainty}</span>
+                        )}
+                      </div>
+                    </div>
+                  ))
+                }
+              </div>
+            )}
+
+            {/* Change Tab */}
+            {activePanel === 'change' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: '6px 8px' }}>
+                {changeResult ? (
+                  <div>
+                    <div className="geo-metric-grid">
+                      <div className="geo-metric-card">
+                        <div className="geo-metric-value" style={{ color: changeResult.change_detected ? 'var(--aur-accent-2)' : 'var(--aur-positive)', fontSize: 13 }}>
+                          {changeResult.change_detected ? 'CHANGE DETECTED' : 'NO CHANGE'}
+                        </div>
+                        <div className="geo-metric-label">Result</div>
+                      </div>
+                      <div className="geo-metric-card">
+                        <div className="geo-metric-value">{changeResult.confidence != null ? (changeResult.confidence * 100).toFixed(0) + '%' : 'N/A'}</div>
+                        <div className="geo-metric-label">Confidence</div>
+                      </div>
+                    </div>
+                    <IntegrityBadge state={changeResult.integrity_state} />
+                    {changeResult.changed_area_km2 != null && (
+                      <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)', marginTop: 8 }}>
+                        Changed area: {changeResult.changed_area_km2.toFixed(2)} km² ({changeResult.spatial_extent_pct?.toFixed(1)}%)
+                      </div>
+                    )}
+                    {changeResult.uncertainty && (
+                      <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', marginTop: 8, padding: 8, background: 'var(--aur-glass)', borderRadius: 6 }}>
+                        <strong>Uncertainty:</strong> {changeResult.uncertainty}
+                      </div>
+                    )}
+                  </div>
+                ) : <div className="geo-placeholder">Select 2 scenes and click Detect Change</div>}
+              </div>
+            )}
+
+            {/* Time Series Tab */}
+            {activePanel === 'timeseries' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: '6px 8px' }}>
+                {timeSeries ? (
+                  <div>
+                    {timeSeries.statistics && Object.keys(timeSeries.statistics).length > 0 && (
+                      <div className="geo-metric-grid">
+                        <div className="geo-metric-card">
+                          <div className="geo-metric-value">{timeSeries.statistics.count}</div>
+                          <div className="geo-metric-label">Observations</div>
+                        </div>
+                        <div className="geo-metric-card">
+                          <div className="geo-metric-value">{fmtVal(timeSeries.statistics.mean)}</div>
+                          <div className="geo-metric-label">Mean {timeSeries.index}</div>
+                        </div>
+                        <div className="geo-metric-card">
+                          <div className="geo-metric-value">{fmtVal(timeSeries.statistics.min)}</div>
+                          <div className="geo-metric-label">Min</div>
+                        </div>
+                        <div className="geo-metric-card">
+                          <div className="geo-metric-value">{fmtVal(timeSeries.statistics.max)}</div>
+                          <div className="geo-metric-label">Max</div>
+                        </div>
+                      </div>
+                    )}
+                    {!timeSeries.statistics || Object.keys(timeSeries.statistics).length === 0 ? (
+                      <div style={{ padding: 10, background: 'rgba(240, 138, 62, 0.08)', borderRadius: 6, fontSize: 11, color: 'var(--aur-accent-2)' }}>
+                        No valid index values in time series. GIBS provides RGB visualization imagery only. Scientific spectral indices require NIR/SWIR bands.
+                      </div>
+                    ) : null}
+                    <div style={{ maxHeight: 200, overflowY: 'auto' }}>
+                      {timeSeries.observations.map((pt, i) => (
+                        <div key={i} className="geo-time-point">
+                          <span>{new Date(pt.date).toLocaleDateString()}</span>
+                          <span style={{ color: pt.value != null ? 'var(--aur-accent)' : 'var(--aur-accent-2)', fontWeight: 600 }}>
+                            {pt.value != null ? (pt.value as number).toFixed(4) : 'DATA_UNAVAILABLE'}
+                          </span>
+                          <span style={{ color: 'var(--aur-ink-faint)', fontSize: 9 }}>{pt.integrity_state || 'UNKNOWN'}</span>
+                        </div>
+                      ))}
+                    </div>
+                    <div style={{ fontSize: 9, color: 'var(--aur-ink-faint)', marginTop: 6 }}>{timeSeries.uncertainty}</div>
+                  </div>
+                ) : (
+                  <div className="geo-placeholder">
+                    {loadingTimeSeries ? 'Loading...' : 'Click "Load Time Series" to fetch observations'}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Provenance Tab */}
+            {activePanel === 'provenance' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: '6px 8px' }}>
+                {selectedScenes.length > 0 ? selectedScenes.map(scene => (
+                  <div key={scene.scene_id} className="geo-scene-card" style={{ cursor: 'default' }}>
+                    <div style={{ fontSize: 11, color: 'var(--aur-ink)', lineHeight: 1.8 }}>
+                      <div><strong>Provider:</strong> {scene.provider}</div>
+                      <div><strong>Dataset:</strong> {scene.dataset}</div>
+                      <div><strong>Scene:</strong> {scene.scene_id}</div>
+                      <div><strong>Acquired:</strong> {new Date(scene.acquisition_time).toISOString()}</div>
+                      <div><strong>Resolution:</strong> {fmtRes(scene.resolution_m)}</div>
+                      <div><strong>Bands:</strong> {scene.bands.join(', ')}</div>
+                      <div><strong>Cloud:</strong> {fmtCloud(scene.cloud_pct)}</div>
+                    </div>
+                  </div>
+                )) : <div className="geo-placeholder">Select a scene to view provenance</div>}
+              </div>
+            )}
+
+            {/* M32 Assets Tab */}
+            {activePanel === 'assets' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: '6px 8px' }}>
+                <ObservationTimeline observations={observations} />
+              </div>
+            )}
+
+            {/* M32 Evidence Tab */}
+            {activePanel === 'evidence' && (
+              <div style={{ height: '100%', overflowY: 'auto', padding: '6px 8px' }}>
+                <GeoEvidencePanel observations={observations} title="Multi-source evidence" />
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
