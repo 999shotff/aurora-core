@@ -38,15 +38,17 @@ interface BackendHealthResponse {
 
 let _backendAvailable: boolean | null = null;
 let _backendCheckTime = 0;
-const BACKEND_CACHE_TTL = 30_000; // 30 seconds
+const BACKEND_CACHE_TTL_OK = 30_000;
+const BACKEND_CACHE_TTL_FAIL = 5_000;
 
 async function checkBackend(): Promise<boolean> {
   const now = Date.now();
-  if (_backendAvailable !== null && now - _backendCheckTime < BACKEND_CACHE_TTL) {
-    return _backendAvailable;
+  if (_backendAvailable !== null) {
+    const ttl = _backendAvailable ? BACKEND_CACHE_TTL_OK : BACKEND_CACHE_TTL_FAIL;
+    if (now - _backendCheckTime < ttl) return _backendAvailable;
   }
   try {
-    const resp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(3000) });
+    const resp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(12000) });
     _backendAvailable = resp.ok;
   } catch {
     _backendAvailable = false;
@@ -127,15 +129,18 @@ export async function getBackendHealth(): Promise<BackendHealthResponse | null> 
 }
 
 export async function getDataSourceInfo(): Promise<{ isDemo: boolean; provider: string }> {
-  const health = await getBackendHealth();
-  if (health) {
+  try {
+    const resp = await fetch(`${API_BASE}/health`, { signal: AbortSignal.timeout(12000) });
+    if (!resp.ok) return { isDemo: true, provider: 'unavailable' };
+    const health: BackendHealthResponse = await resp.json();
     const providerSvc = health.services.find(s => s.service === 'market-data-provider');
     return {
       isDemo: providerSvc ? providerSvc.version === 'demo' : true,
       provider: providerSvc?.version ?? 'unknown',
     };
+  } catch {
+    return { isDemo: true, provider: 'unavailable' };
   }
-  return { isDemo: true, provider: 'mock (no backend)' };
 }
 
 export function generateMockOHLCV(
@@ -179,14 +184,28 @@ export async function fetchOHLCV(
   signal?: AbortSignal
 ): Promise<{ bars: OHLCBar[]; isDemo: boolean; provider: string; stale: boolean; empty: boolean }> {
   if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
-  const backendData = await fetchOHLCFromBackend(symbol, timeframe, nBars, signal);
-  if (backendData) {
-    return { ...backendData, empty: false };
+
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
+
+    if (attempt > 0) {
+      invalidateBackendCache();
+      await new Promise(r => setTimeout(r, 2000));
+    }
+
+    const backendData = await fetchOHLCFromBackend(symbol, timeframe, nBars, signal);
+    if (backendData) {
+      return { ...backendData, empty: false };
+    }
+
+    const available = await checkBackend();
+    if (available) {
+      return { bars: [], isDemo: true, provider: 'unknown', stale: false, empty: true };
+    }
   }
-  const available = await checkBackend();
-  if (available) {
-    return { bars: [], isDemo: true, provider: 'unknown', stale: false, empty: true };
-  }
+
   throw new Error('BACKEND UNAVAILABLE');
 }
 

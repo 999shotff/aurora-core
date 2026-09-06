@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import type { Timeframe, OHLCBar, IndicatorSeries, AnalysisMetrics } from '../types';
-import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo, INDICATOR_GROUPS } from '../services/data';
+import { fetchOHLCV, computeAllIndicators, getAnalysisMetrics, getDataSourceInfo, invalidateBackendCache, INDICATOR_GROUPS } from '../services/data';
 import { MarketStreamService, type ConnectionState } from '../services/stream';
 import { TopBar } from '../components/TopBar';
 import { Watchlist } from '../components/Watchlist';
@@ -27,7 +27,7 @@ export const MarketObservatoryPage: React.FC = () => {
   const [bars, setBars] = useState<OHLCBar[]>([]);
   const [overlays, setOverlays] = useState<IndicatorSeries[]>([]);
   const [metrics, setMetrics] = useState<AnalysisMetrics | null>(null);
-  const [dataSource, setDataSource] = useState<{ isDemo: boolean; provider: string; stale: boolean }>({ isDemo: true, provider: 'loading...', stale: false });
+  const [dataSource, setDataSource] = useState<{ isDemo: boolean; provider: string; stale: boolean }>({ isDemo: true, provider: 'connecting...', stale: false });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [backendDown, setBackendDown] = useState(false);
@@ -76,6 +76,11 @@ export const MarketObservatoryPage: React.FC = () => {
       if (!controller.signal.aborted) setLoading(false);
     }
   }, [selectedAsset, selectedTimeframe, enabledIndicators, indicatorParams]);
+
+  const handleRetry = useCallback(() => {
+    invalidateBackendCache();
+    loadData();
+  }, [loadData]);
 
   useEffect(() => {
     const stream = new MarketStreamService({
@@ -143,8 +148,7 @@ export const MarketObservatoryPage: React.FC = () => {
 
   useEffect(() => {
     getDataSourceInfo().then(info => {
-      setDataSource({ ...info, stale: false });
-      setBackendDown(info.provider === 'mock (no backend)');
+      setDataSource(prev => ({ ...prev, ...info, stale: false }));
     });
   }, []);
 
@@ -199,28 +203,29 @@ export const MarketObservatoryPage: React.FC = () => {
               {loading ? (
                 <div className="market-state-overlay">
                   <div className="market-spinner" />
-                  <span>Loading market data</span>
+                  <span>{dataSource.provider === 'connecting...' ? 'Connecting to backend…' : 'Loading market data'}</span>
+                  <span className="market-state-detail">Render free-tier services may take 30s to wake from sleep</span>
                 </div>
               ) : backendDown ? (
                 <div className="market-state-overlay market-state-error">
                   <div className="market-state-icon">&#9888;</div>
                   <span className="market-state-title">MARKET DATA UNAVAILABLE</span>
-                  <span className="market-state-detail">The market data service is not responding.</span>
-                  <button className="market-retry-btn" onClick={() => loadData()}>Retry</button>
+                  <span className="market-state-detail">The backend at aurora-core-1-txvl.onrender.com is not responding. It may be waking from sleep.</span>
+                  <button className="market-retry-btn" onClick={handleRetry}>Retry</button>
                 </div>
               ) : error ? (
                 <div className="market-state-overlay market-state-error">
                   <div className="market-state-icon">&#9888;</div>
                   <span className="market-state-title">ERROR</span>
                   <span className="market-state-detail">{error}</span>
-                  <button className="market-retry-btn" onClick={() => loadData()}>Retry</button>
+                  <button className="market-retry-btn" onClick={handleRetry}>Retry</button>
                 </div>
               ) : emptyData ? (
                 <div className="market-state-overlay">
                   <div className="market-state-icon">&#9744;</div>
                   <span className="market-state-title">NO DATA AVAILABLE</span>
                   <span className="market-state-detail">The backend returned no valid bars for this asset/timeframe.</span>
-                  <button className="market-retry-btn" onClick={() => loadData()}>Retry</button>
+                  <button className="market-retry-btn" onClick={handleRetry}>Retry</button>
                 </div>
               ) : (
                 <PriceChart

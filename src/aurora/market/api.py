@@ -98,7 +98,10 @@ def _get_provider() -> MarketDataProvider:
 def _get_cors_origins() -> list[str]:
     """Load CORS origins from environment."""
     import os
-    raw = os.environ.get("AURORA_CORS_ORIGINS", "https://aurora-core.vercel.app")
+    raw = os.environ.get(
+        "AURORA_CORS_ORIGINS",
+        "https://aurora-core.vercel.app,https://frontend-xi-lime-ksuscu5g0r.vercel.app,http://localhost:5173,http://localhost:3000",
+    )
     return [o.strip() for o in raw.split(",") if o.strip()]
 
 

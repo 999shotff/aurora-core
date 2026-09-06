@@ -175,9 +175,9 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
     });
 
     const candleSeries = chart.addCandlestickSeries({
-      upColor: '#26a69a', downColor: '#ef5350',
-      borderUpColor: '#26a69a', borderDownColor: '#ef5350',
-      wickUpColor: '#26a69a', wickDownColor: '#ef5350',
+      upColor: '#7C9EFF', downColor: '#ef5350',
+      borderUpColor: '#7C9EFF', borderDownColor: '#ef5350',
+      wickUpColor: '#7C9EFF', wickDownColor: '#ef5350',
     });
 
     const volumeSeries = chart.addHistogramSeries({
@@ -235,7 +235,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
     const volumeData: HistogramData[] = bars.map(b => ({
       time: barTimeToChartTime(b.time),
       value: b.volume,
-      color: b.close >= b.open ? 'rgba(38,166,154,0.3)' : 'rgba(239,83,80,0.3)',
+      color: b.close >= b.open ? 'rgba(124,158,255,0.3)' : 'rgba(239,83,80,0.3)',
     }));
     volumeRef.current.setData(volumeData);
 
@@ -260,7 +260,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
         markers.push({
           time: barTimeToChartTime(bar.time),
           position: br.break_type.includes('bull') ? 'belowBar' as const : 'aboveBar' as const,
-          color: br.break_type.includes('choch') ? '#E91E63' : '#26a69a',
+          color: br.break_type.includes('choch') ? '#E91E63' : '#7C9EFF',
           shape: 'arrowUp' as const,
           text: br.break_type.includes('choch') ? 'CH' : 'BOS',
         });
@@ -362,7 +362,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
           const data: HistogramData[] = s.points.map(p => ({
             time: barTimeToChartTime(p.time),
             value: p.value,
-            color: p.value >= 0 ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)',
+            color: p.value >= 0 ? 'rgba(124,158,255,0.6)' : 'rgba(239,83,80,0.6)',
           }));
           if (data.length > 0) histSeries.setData(data);
           seriesArr.push(histSeries);
@@ -547,7 +547,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
           const data: HistogramData[] = s.points.map(p => ({
             time: barTimeToChartTime(p.time),
             value: p.value,
-            color: p.value >= 0 ? 'rgba(38,166,154,0.6)' : 'rgba(239,83,80,0.6)',
+            color: p.value >= 0 ? 'rgba(124,158,255,0.6)' : 'rgba(239,83,80,0.6)',
           }));
           (seriesApi as ISeriesApi<'Histogram'>).setData(data);
         } else {
