@@ -10,6 +10,7 @@ interface Props {
   panels: IndicatorSeries[];
   structureEnabled?: boolean;
   isIntraday?: boolean;
+  onIncrementalUpdate?: (updateFn: (bar: OHLCBar) => void) => void;
 }
 
 function barTimeToChartTime(time: string): Time {
@@ -119,7 +120,7 @@ function extractGroupId(name: string): string {
   return name.split('_')[0];
 }
 
-export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureEnabled = false, isIntraday = false }) => {
+export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureEnabled = false, isIntraday = false, onIncrementalUpdate }) => {
   const outerRef = useRef<HTMLDivElement>(null);
   const mainContainerRef = useRef<HTMLDivElement>(null);
   const mainChartRef = useRef<IChartApi | null>(null);
@@ -194,6 +195,23 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
     mainSeriesRef.current = candleSeries;
     volumeRef.current = volumeSeries;
 
+    if (onIncrementalUpdate) {
+      const incrementalUpdate = (bar: OHLCBar) => {
+        if (!candleRef.current || !volumeRef.current) return;
+        const time = barTimeToChartTime(bar.time);
+        candleRef.current.update({
+          time,
+          open: bar.open, high: bar.high, low: bar.low, close: bar.close,
+        });
+        volumeRef.current.update({
+          time,
+          value: bar.volume,
+          color: bar.close >= bar.open ? 'rgba(124,158,255,0.3)' : 'rgba(239,83,80,0.3)',
+        });
+      };
+      onIncrementalUpdate(incrementalUpdate);
+    }
+
     const resizeObserver = new ResizeObserver(entries => {
       if (entries[0]) {
         chart.applyOptions({
@@ -238,18 +256,15 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
       && prevBarsLenRef.current > 0;
 
     if (isIncremental) {
-      const candleData: CandlestickData = {
+      candleRef.current.update({
         time: lastTime,
         open: lastBar.open, high: lastBar.high, low: lastBar.low, close: lastBar.close,
-      };
-      candleRef.current.update(candleData);
-
-      const volumeData: HistogramData = {
+      });
+      volumeRef.current.update({
         time: lastTime,
         value: lastBar.volume,
         color: lastBar.close >= lastBar.open ? 'rgba(124,158,255,0.3)' : 'rgba(239,83,80,0.3)',
-      };
-      volumeRef.current.update(volumeData);
+      });
     } else {
       const candleData: CandlestickData[] = bars.map(b => ({
         time: barTimeToChartTime(b.time),
@@ -268,7 +283,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
     prevBarsLenRef.current = bars.length;
     prevBarsTimeRef.current = lastBar.time;
 
-    if (structureEnabled && bars.length > 4) {
+    if (!isIncremental && structureEnabled && bars.length > 4) {
       const highs = bars.map(b => b.high);
       const lows = bars.map(b => b.low);
       const closes = bars.map(b => b.close);
@@ -297,7 +312,7 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
 
       markers.sort((a, b) => (a.time as number) - (b.time as number));
       candleRef.current?.setMarkers(markers);
-    } else {
+    } else if (!isIncremental) {
       candleRef.current?.setMarkers([]);
     }
   }, [bars, structureEnabled]);

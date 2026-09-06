@@ -49,6 +49,7 @@ export const MarketObservatoryPage: React.FC = () => {
   const lastConnRef = useRef<ConnectionState | null>(null);
   const assetRef = useRef(selectedAsset);
   const timeframeRef = useRef(selectedTimeframe);
+  const chartUpdateRef = useRef<((bar: OHLCBar) => void) | null>(null);
   assetRef.current = selectedAsset;
   timeframeRef.current = selectedTimeframe;
 
@@ -111,15 +112,19 @@ export const MarketObservatoryPage: React.FC = () => {
       onUpdate: (bar, asset, tf) => {
         if (asset !== assetRef.current || tf !== timeframeRef.current) return;
         const mappedBar = { ...bar, time: (bar as unknown as { timestamp: string }).timestamp ?? bar.time };
-        setBars(prev => {
-          const next = [...prev];
-          if (next.length > 0 && next[next.length - 1].time === mappedBar.time) next[next.length - 1] = mappedBar;
-          else next.push(mappedBar);
+        const prev = barsRef.current;
+        const isIncremental = prev.length > 0 && prev[prev.length - 1].time === mappedBar.time;
+
+        if (isIncremental && chartUpdateRef.current) {
+          chartUpdateRef.current(mappedBar);
+          prev[prev.length - 1] = mappedBar;
+        } else {
+          const next = [...prev, mappedBar];
           barsRef.current = next;
+          setBars(next);
           setOverlays(computeAllIndicators(next, enabledIndicators, indicatorParams));
           setMetrics(getAnalysisMetrics(next));
-          return next;
-        });
+        }
       },
       onError: (_code, message) => setError(message),
     });
@@ -175,7 +180,7 @@ export const MarketObservatoryPage: React.FC = () => {
     setIndicatorParams(prev => { const next = { ...prev }; delete next[indicatorId]; return next; });
   }, []);
 
-  const lastBar = bars[bars.length - 1];
+  const lastBar = bars[bars.length - 1] || barsRef.current[barsRef.current.length - 1];
   const isIntraday = isIntradayTimeframe(selectedTimeframe);
   const oscillatorIds = useMemo(() => new Set(INDICATOR_GROUPS.filter(g => !g.overlay).flatMap(g => g.subSeries)), []);
   const oscillatorSeries = useMemo(() => overlays.filter(s => oscillatorIds.has(s.name)), [overlays, oscillatorIds]);
@@ -238,6 +243,7 @@ export const MarketObservatoryPage: React.FC = () => {
                   panels={oscillatorSeries}
                   structureEnabled={structureEnabled}
                   isIntraday={isIntraday}
+                  onIncrementalUpdate={(fn) => { chartUpdateRef.current = fn; }}
                 />
               )}
             </div>
