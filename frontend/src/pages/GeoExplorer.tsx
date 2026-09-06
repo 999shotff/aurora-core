@@ -194,8 +194,8 @@ const GeoExplorer: React.FC = () => {
       });
 
       (L as { tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (m: unknown) => unknown } }).tileLayer(
-        'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-        { maxZoom: 19, subdomains: 'abcd' }
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        { maxZoom: 19, subdomains: 'abc', attribution: '&copy; OpenStreetMap' }
       ).addTo(map);
 
       const bounds = [

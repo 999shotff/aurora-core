@@ -7,9 +7,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { useEventBus } from '../lib/eventBus';
 import {
   GlassPanel,
-  StatusBadge,
   LoadingState,
-  ErrorState,
   EmptyState,
 } from '../components/shell/primitives';
 import {
@@ -101,7 +99,7 @@ export function InvestigationCenter() {
     try {
       setStarting(true);
       const inv = await createInvestigation({ query, domain });
-      emit({ kind: 'processing', label: `Investigation created: ${inv.investigation_id}` });
+      emit('navigation', `Investigation created: ${inv.investigation_id}`, 'live');
       await loadInvestigations();
       setSelectedId(inv.investigation_id);
     } catch (e) {
@@ -115,7 +113,7 @@ export function InvestigationCenter() {
     try {
       setStarting(true);
       await startInvestigation(id);
-      emit({ kind: 'processing', label: `Investigation started: ${id}` });
+      emit('navigation', `Investigation started: ${id}`, 'live');
       await loadInvestigations();
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to start');

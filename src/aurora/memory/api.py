@@ -181,33 +181,6 @@ def create_memory(body: CreateMemoryRequest) -> dict:
     )
 
 
-@memory_app.get("/api/v1/memory/{memory_id}")
-def get_memory(memory_id: str) -> dict:
-    """Get a memory record by ID."""
-    manager = _get_manager()
-    record = manager.get(memory_id)
-    if record is None:
-        return {"error": f"Memory {memory_id} not found"}
-    return MemoryAPIResponse(
-        memory_id=record.memory_id,
-        memory_type=record.memory_type.value,
-        version=record.version,
-        domain=record.domain,
-        title=record.title,
-        content=record.content,
-        source=record.source,
-        provenance=record.provenance,
-        created_at=record.created_at,
-        observed_at=record.observed_at,
-        updated_at=record.updated_at,
-        status=record.status.value,
-        confidence=record.confidence,
-        evidence_refs=record.evidence_refs,
-        entity_refs=record.entity_refs,
-        tags=record.tags,
-    ).model_dump()
-
-
 @memory_app.get("/api/v1/memory/search")
 def search_memory(
     query: str = Query(default=""),
@@ -247,6 +220,33 @@ def search_memory(
         ],
         "total": len(results),
     }
+
+
+@memory_app.get("/api/v1/memory/{memory_id}")
+def get_memory(memory_id: str) -> dict:
+    """Get a memory record by ID."""
+    manager = _get_manager()
+    record = manager.get(memory_id)
+    if record is None:
+        return {"error": f"Memory {memory_id} not found"}
+    return MemoryAPIResponse(
+        memory_id=record.memory_id,
+        memory_type=record.memory_type.value,
+        version=record.version,
+        domain=record.domain,
+        title=record.title,
+        content=record.content,
+        source=record.source,
+        provenance=record.provenance,
+        created_at=record.created_at,
+        observed_at=record.observed_at,
+        updated_at=record.updated_at,
+        status=record.status.value,
+        confidence=record.confidence,
+        evidence_refs=record.evidence_refs,
+        entity_refs=record.entity_refs,
+        tags=record.tags,
+    ).model_dump()
 
 
 @memory_app.get("/api/v1/memory/{memory_id}/history")

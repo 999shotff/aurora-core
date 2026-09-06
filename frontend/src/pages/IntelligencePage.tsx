@@ -1,36 +1,49 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { ArrowRight } from 'lucide-react';
-import { GlassPanel, StatusBadge, ConfidenceIndicator, LoadingState, EmptyState } from '../components/shell/primitives';
-import { listInvestigations } from '../services/investigations';
-import { listEvidence } from '../services/evidence';
+import React, { useEffect, useState } from 'react';
+import { GlassPanel, LoadingState, EmptyState } from '../components/shell/primitives';
+import { listInvestigations, getInvestigationFindings, getInvestigationResult } from '../services/investigations';
 import { useEventBus } from '../lib/eventBus';
-import type { Investigation, EvidenceItem, Claim } from '../types/domain';
-
-// Demo claims — no claim/hypothesis backend exists yet; kept local since only
-// this page consumes them. Clearly DEMO via StatusBadge, same as elsewhere.
-const DEMO_CLAIMS: Claim[] = [
-  { id: 'cl_01', investigationId: 'inv_01', text: 'Realized volatility has compressed relative to the pre-halving baseline.', supportingEvidenceIds: ['ev_03'], contradictingEvidenceIds: ['ev_04'], confidence: 'medium' },
-  { id: 'cl_02', investigationId: 'inv_02', text: 'Vegetation index decline in AOI-7 is concentrated in the northern third of the region.', supportingEvidenceIds: ['ev_01', 'ev_02'], contradictingEvidenceIds: [], confidence: 'high' },
-];
+import type { InvestigationSummary, InvestigationFinding } from '../services/investigations';
 
 const STAGES = ['Question', 'Data', 'Evidence', 'Analysis', 'Conclusion'];
 
+const STATUS_COLORS: Record<string, string> = {
+  DRAFT: '#9096A8', PLANNING: '#7C9EFF', MEMORY_RETRIEVAL: '#7C9EFF', GAP_ANALYSIS: '#7C9EFF',
+  INVESTIGATING: '#FBBF24', ANALYZING: '#FBBF24', COMPARING: '#FBBF24', SUFFICIENCY_CHECK: '#FBBF24',
+  VALIDATING: '#A78BFA', SYNTHESIZING: '#A78BFA', COMPLETE: '#34D399', PARTIAL: '#FBBF24',
+  ABSTAINED: '#9096A8', FAILED: '#F87171', CANCELLED: '#9096A8',
+};
+
 export const IntelligencePage: React.FC = () => {
-  const [investigations, setInvestigations] = useState<Investigation[] | null>(null);
-  const [evidence, setEvidence] = useState<EvidenceItem[] | null>(null);
+  const [investigations, setInvestigations] = useState<InvestigationSummary[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [findings, setFindings] = useState<InvestigationFinding[]>([]);
+  const [executiveSummary, setExecutiveSummary] = useState<string>('');
+  const [loading, setLoading] = useState(true);
   const { emit } = useEventBus();
 
   useEffect(() => {
     emit('navigation', 'Intelligence opened', 'live');
-    listInvestigations().then(r => { setInvestigations(r.data); if (r.data.length) setSelectedId(r.data[0].id); }).catch(() => setInvestigations([]));
-    listEvidence().then(r => setEvidence(r.data)).catch(() => setEvidence([]));
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+    listInvestigations({ limit: 50 })
+      .then(r => {
+        const invs = r.investigations || [];
+        setInvestigations(invs);
+        if (invs.length) setSelectedId(invs[0].investigation_id);
+      })
+      .catch(() => setInvestigations([]))
+      .finally(() => setLoading(false));
+  }, [emit]);
 
-  const selected = investigations?.find(i => i.id === selectedId) ?? null;
-  const relatedEvidence = useMemo(() => (evidence ?? []).filter(e => e.investigationId === selectedId), [evidence, selectedId]);
-  const relatedClaims = useMemo(() => DEMO_CLAIMS.filter(c => c.investigationId === selectedId), [selectedId]);
+  useEffect(() => {
+    if (!selectedId) return;
+    getInvestigationFindings(selectedId)
+      .then(r => setFindings(r.findings || []))
+      .catch(() => setFindings([]));
+    getInvestigationResult(selectedId)
+      .then(r => setExecutiveSummary(r.result?.executive_summary || ''))
+      .catch(() => setExecutiveSummary(''));
+  }, [selectedId]);
+
+  const selected = investigations.find(i => i.investigation_id === selectedId) ?? null;
 
   return (
     <div>
@@ -39,7 +52,7 @@ export const IntelligencePage: React.FC = () => {
           {STAGES.map((s, i) => (
             <React.Fragment key={s}>
               <span style={{ fontSize: 11, fontWeight: 600, color: i === 0 ? 'var(--aur-accent)' : 'var(--aur-ink-faint)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{s}</span>
-              {i < STAGES.length - 1 && <ArrowRight size={12} color="var(--aur-ink-faint)" />}
+              {i < STAGES.length - 1 && <span style={{ color: 'var(--aur-ink-faint)' }}>→</span>}
             </React.Fragment>
           ))}
         </div>
@@ -48,49 +61,56 @@ export const IntelligencePage: React.FC = () => {
           onChange={e => setSelectedId(e.target.value)}
           style={{ width: '100%', background: 'rgba(0,0,0,0.28)', border: '1px solid var(--aur-border-soft)', borderRadius: 9, padding: '10px 12px', color: 'var(--aur-ink)', fontSize: 13.5, outline: 'none' }}
         >
-          {investigations?.map(inv => <option key={inv.id} value={inv.id}>{inv.title}</option>)}
+          {investigations.map(inv => (
+            <option key={inv.investigation_id} value={inv.investigation_id}>
+              {inv.query.slice(0, 80)}{inv.query.length > 80 ? '...' : ''}
+            </option>
+          ))}
         </select>
       </GlassPanel>
 
-      {investigations === null && <LoadingState label="Loading investigations…" />}
+      {loading && <LoadingState label="Loading investigations…" />}
+
+      {!loading && investigations.length === 0 && (
+        <EmptyState message="No investigations yet" hint="Create one in Investigation Center" />
+      )}
 
       {selected && (
         <>
           <GlassPanel style={{ marginBottom: 14 }}>
             <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--aur-ink-faint)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: 6 }}>Question</div>
-            <p style={{ fontSize: 15, lineHeight: 1.5 }}>{selected.question}</p>
+            <p style={{ fontSize: 15, lineHeight: 1.5 }}>{selected.query}</p>
             <div style={{ display: 'flex', gap: 14, marginTop: 12, alignItems: 'center', flexWrap: 'wrap' }}>
-              <StatusBadge origin="demo" small />
-              <ConfidenceIndicator band={selected.confidence} />
-              <span style={{ fontSize: 11.5, color: 'var(--aur-ink-faint)' }}>{selected.evidenceCount} evidence items linked · updated {new Date(selected.updatedAt).toLocaleDateString()}</span>
+              <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 600, background: STATUS_COLORS[selected.status] || '#9096A8', color: '#000' }}>
+                {selected.status}
+              </span>
+              <span style={{ fontSize: 11.5, color: 'var(--aur-ink-dim)' }}>
+                {selected.domain} · {selected.evidence_count} evidence · {selected.findings_count} findings
+              </span>
             </div>
           </GlassPanel>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
             <GlassPanel>
-              <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Supporting evidence</h2>
-              {relatedEvidence.length === 0 && <EmptyState message="No linked evidence for this investigation." />}
-              {relatedEvidence.map(ev => (
-                <div key={ev.id} style={{ padding: '9px 2px', borderBottom: '1px solid var(--aur-border-soft)' }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{ev.title}</div>
-                  <div style={{ fontSize: 11, color: 'var(--aur-ink-faint)', marginTop: 2 }}>{ev.source}</div>
+              <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Findings</h2>
+              {findings.length === 0 && <EmptyState message="No findings yet" />}
+              {findings.map(f => (
+                <div key={f.finding_id} style={{ padding: '9px 2px', borderBottom: '1px solid var(--aur-border-soft)' }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 500 }}>{f.statement}</div>
+                  <div style={{ fontSize: 11, color: 'var(--aur-ink-faint)', marginTop: 2 }}>
+                    {f.classification} · {(f.confidence * 100).toFixed(0)}% confidence
+                  </div>
                 </div>
               ))}
             </GlassPanel>
 
             <GlassPanel>
-              <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Claims &amp; conclusions</h2>
-              {relatedClaims.length === 0 && <EmptyState message="No claims synthesized yet for this investigation." />}
-              {relatedClaims.map(cl => (
-                <div key={cl.id} style={{ padding: '10px 2px', borderBottom: '1px solid var(--aur-border-soft)' }}>
-                  <p style={{ fontSize: 12.5, lineHeight: 1.5 }}>{cl.text}</p>
-                  <div style={{ display: 'flex', gap: 10, marginTop: 6, alignItems: 'center' }}>
-                    <ConfidenceIndicator band={cl.confidence} showLabel={false} />
-                    <span style={{ fontSize: 10.5, color: 'var(--aur-positive)' }}>{cl.supportingEvidenceIds.length} supporting</span>
-                    {cl.contradictingEvidenceIds.length > 0 && <span style={{ fontSize: 10.5, color: 'var(--aur-negative)' }}>{cl.contradictingEvidenceIds.length} conflicting</span>}
-                  </div>
-                </div>
-              ))}
+              <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 10 }}>Executive Summary</h2>
+              {executiveSummary ? (
+                <p style={{ fontSize: 13, lineHeight: 1.6, color: 'var(--aur-ink)' }}>{executiveSummary}</p>
+              ) : (
+                <EmptyState message="No summary available" hint="Summary generated after investigation completes" />
+              )}
             </GlassPanel>
           </div>
         </>
