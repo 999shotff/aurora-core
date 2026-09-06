@@ -129,6 +129,12 @@ from aurora.ai.api import reason_app
 for route in reason_app.routes:
     app.router.routes.append(route)
 
+# LLM-3: Mount memory sub-application
+from aurora.memory.api import memory_app
+
+for route in memory_app.routes:
+    app.router.routes.append(route)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),
