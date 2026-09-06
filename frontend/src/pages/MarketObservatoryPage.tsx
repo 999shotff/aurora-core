@@ -47,6 +47,10 @@ export const MarketObservatoryPage: React.FC = () => {
   const streamRef = useRef<MarketStreamService | null>(null);
   const connectionProviderRef = useRef<string>('');
   const lastConnRef = useRef<ConnectionState | null>(null);
+  const assetRef = useRef(selectedAsset);
+  const timeframeRef = useRef(selectedTimeframe);
+  assetRef.current = selectedAsset;
+  timeframeRef.current = selectedTimeframe;
 
   const loadData = useCallback(async (isPoll = false) => {
     if (abortRef.current) abortRef.current.abort();
@@ -93,7 +97,7 @@ export const MarketObservatoryPage: React.FC = () => {
         if (state === 'fallback') loadData(true);
       },
       onInitialData: (initialBars, asset, tf, provider, isDemo) => {
-        if (asset !== selectedAsset || tf !== selectedTimeframe) return;
+        if (asset !== assetRef.current || tf !== timeframeRef.current) return;
         connectionProviderRef.current = provider;
         const mappedBars = initialBars.map(b => ({ ...b, time: (b as unknown as { timestamp: string }).timestamp ?? b.time }));
         barsRef.current = mappedBars;
@@ -105,7 +109,7 @@ export const MarketObservatoryPage: React.FC = () => {
         setEmptyData(mappedBars.length === 0);
       },
       onUpdate: (bar, asset, tf) => {
-        if (asset !== selectedAsset || tf !== selectedTimeframe) return;
+        if (asset !== assetRef.current || tf !== timeframeRef.current) return;
         const mappedBar = { ...bar, time: (bar as unknown as { timestamp: string }).timestamp ?? bar.time };
         setBars(prev => {
           const next = [...prev];

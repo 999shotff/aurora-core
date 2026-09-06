@@ -136,6 +136,9 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
   const crosshairCallbacksRef = useRef<Array<{ chart: IChartApi; cb: (param: unknown) => void }>>([]);
   const isSyncingRef = useRef(false);
 
+  const prevBarsLenRef = useRef(0);
+  const prevBarsTimeRef = useRef<string>('');
+
   const panelGroups = useMemo(() => groupPanelSeries(panels), [panels]);
 
   const cleanupOverlays = useCallback(() => {
@@ -223,21 +226,47 @@ export const PriceChart: React.FC<Props> = ({ bars, overlays, panels, structureE
     if (bars.length === 0) {
       candleRef.current.setData([]);
       volumeRef.current.setData([]);
+      prevBarsLenRef.current = 0;
+      prevBarsTimeRef.current = '';
       return;
     }
 
-    const candleData: CandlestickData[] = bars.map(b => ({
-      time: barTimeToChartTime(b.time),
-      open: b.open, high: b.high, low: b.low, close: b.close,
-    }));
-    candleRef.current.setData(candleData);
+    const lastBar = bars[bars.length - 1];
+    const lastTime = barTimeToChartTime(lastBar.time);
+    const isIncremental = bars.length === prevBarsLenRef.current
+      && lastBar.time === prevBarsTimeRef.current
+      && prevBarsLenRef.current > 0;
 
-    const volumeData: HistogramData[] = bars.map(b => ({
-      time: barTimeToChartTime(b.time),
-      value: b.volume,
-      color: b.close >= b.open ? 'rgba(124,158,255,0.3)' : 'rgba(239,83,80,0.3)',
-    }));
-    volumeRef.current.setData(volumeData);
+    if (isIncremental) {
+      const candleData: CandlestickData = {
+        time: lastTime,
+        open: lastBar.open, high: lastBar.high, low: lastBar.low, close: lastBar.close,
+      };
+      candleRef.current.update(candleData);
+
+      const volumeData: HistogramData = {
+        time: lastTime,
+        value: lastBar.volume,
+        color: lastBar.close >= lastBar.open ? 'rgba(124,158,255,0.3)' : 'rgba(239,83,80,0.3)',
+      };
+      volumeRef.current.update(volumeData);
+    } else {
+      const candleData: CandlestickData[] = bars.map(b => ({
+        time: barTimeToChartTime(b.time),
+        open: b.open, high: b.high, low: b.low, close: b.close,
+      }));
+      candleRef.current.setData(candleData);
+
+      const volumeData: HistogramData[] = bars.map(b => ({
+        time: barTimeToChartTime(b.time),
+        value: b.volume,
+        color: b.close >= b.open ? 'rgba(124,158,255,0.3)' : 'rgba(239,83,80,0.3)',
+      }));
+      volumeRef.current.setData(volumeData);
+    }
+
+    prevBarsLenRef.current = bars.length;
+    prevBarsTimeRef.current = lastBar.time;
 
     if (structureEnabled && bars.length > 4) {
       const highs = bars.map(b => b.high);

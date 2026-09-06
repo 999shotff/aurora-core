@@ -159,15 +159,12 @@ class StreamManager:
             if resp.source_status == "error" or not resp.candles:
                 return
             candle = resp.candles[0]
-            bar_ts = candle.timestamp
             for client in subscribers:
                 key = _sub_key(asset, timeframe)
                 sub = client.subscriptions.get(key)
                 if not sub:
                     continue
-                if sub.last_bar_timestamp == bar_ts:
-                    continue
-                sub.last_bar_timestamp = bar_ts
+                sub.last_bar_timestamp = candle.timestamp
                 sub.last_check = time.monotonic()
                 msg = {
                     "type": "market_update",
