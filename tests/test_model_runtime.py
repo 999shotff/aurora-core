@@ -652,6 +652,117 @@ class TestWorkerRuntimeHandler:
         assert result["status"] == "ERROR"
         assert "No model loaded" in result["error"]
 
+    def test_load_rejects_unregistered_model_id(self):
+        handler = self._make_handler()
+        result = handler.load_model("totally-fake-model")
+        assert result["status"] == "ERROR"
+        assert "not in approved registry" in result["error"]
+
+    def test_load_rejects_arbitrary_source_model_id(self):
+        handler = self._make_handler()
+        result = handler.load_model(
+            "smollm2-1.7b",
+            source_model_id="evil-user/malicious-repo",
+        )
+        assert result["status"] == "ERROR"
+        assert "not in approved whitelist" in result["error"]
+
+    def test_load_rejects_internal_id_as_source(self):
+        handler = self._make_handler()
+        result = handler.load_model(
+            "smollm2-1.7b",
+            source_model_id="smollm2-1.7b",
+        )
+        assert result["status"] == "ERROR"
+        assert "not in approved whitelist" in result["error"]
+
+    def test_load_rejects_empty_source_model_id(self):
+        handler = self._make_handler()
+        result = handler.load_model(
+            "nonexistent-model",
+            source_model_id="",
+        )
+        assert result["status"] == "ERROR"
+
+    def test_load_rejects_hf_url_as_source(self):
+        handler = self._make_handler()
+        result = handler.load_model(
+            "smollm2-1.7b",
+            source_model_id="https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        )
+        assert result["status"] == "ERROR"
+        assert "not in approved whitelist" in result["error"]
+
+    def test_approved_models_whitelist_complete(self):
+        from workers.google_colab.worker import APPROVED_SOURCE_MODELS, APPROVED_SOURCE_IDS
+        assert len(APPROVED_SOURCE_MODELS) == 5
+        assert "HuggingFaceTB/SmolLM2-1.7B-Instruct" in APPROVED_SOURCE_IDS
+        assert "microsoft/Phi-3.5-mini-instruct" in APPROVED_SOURCE_IDS
+        assert "mistralai/Mistral-7B-Instruct-v0.3" in APPROVED_SOURCE_IDS
+        assert "Qwen/Qwen2.5-7B-Instruct" in APPROVED_SOURCE_IDS
+        assert "meta-llama/Llama-3.1-8B-Instruct" in APPROVED_SOURCE_IDS
+
+    def test_internal_ids_never_match_source_ids(self):
+        from workers.google_colab.worker import APPROVED_SOURCE_MODELS
+        for internal, source in APPROVED_SOURCE_MODELS.items():
+            assert internal != source, f"{internal} == {source}"
+
+
+# ============================================================
+# Source Model ID Provenance Tests
+# ============================================================
+
+
+class TestSourceModelProvenance:
+    def test_provenance_contains_source_model_id(self):
+        model = get_model_by_id("smollm2-1.7b")
+        assert model is not None
+        assert model.source_model_id == "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+        assert model.model_id == "smollm2-1.7b"
+        assert model.model_id != model.source_model_id
+
+    def test_provenance_contains_both_ids_for_all_models(self):
+        reg = get_default_registry()
+        for model in reg.models:
+            assert model.model_id, f"{model.model_name} missing model_id"
+            assert model.source_model_id, f"{model.model_name} missing source_model_id"
+            assert model.model_id != model.source_model_id, \
+                f"{model.model_name}: model_id == source_model_id"
+
+    def test_manager_load_includes_source_model_id(self):
+        from aurora.runtime.manager import RuntimeManager
+        from aurora.compute.manager import ComputeManager
+        cm = ComputeManager()
+        mgr = RuntimeManager(cm)
+        model = mgr.registry.models[0]
+        assert hasattr(model, "source_model_id")
+        assert model.source_model_id.startswith("HuggingFaceTB/") or \
+               model.source_model_id.startswith("microsoft/") or \
+               model.source_model_id.startswith("mistralai/") or \
+               model.source_model_id.startswith("Qwen/") or \
+               model.source_model_id.startswith("meta-llama/")
+
+    def test_registry_models_endpoint_includes_source_model_id(self):
+        from fastapi.testclient import TestClient
+        from fastapi import FastAPI
+        from aurora.runtime.api import router, set_runtime_manager
+        from aurora.runtime.manager import RuntimeManager
+        from aurora.compute.manager import ComputeManager
+
+        app = FastAPI()
+        app.include_router(router)
+        cm = ComputeManager()
+        mgr = RuntimeManager(cm)
+        set_runtime_manager(mgr)
+
+        client = TestClient(app)
+        resp = client.get("/api/v1/runtime/registry/models")
+        assert resp.status_code == 200
+        data = resp.json()
+        for entry in data:
+            assert "source_model_id" in entry, f"{entry.get('model_id')} missing source_model_id"
+            assert "model_id" in entry
+
 
 # ============================================================
 # Edge Cases

@@ -34,6 +34,19 @@ HEARTBEAT_INTERVAL = 30
 RECONNECT_DELAY = 5
 MAX_RECONNECT_ATTEMPTS = 20
 
+# Whitelist of approved HuggingFace source model IDs.
+# Only these repositories may be loaded via from_pretrained().
+# Maps AURORA internal model_id -> HuggingFace repo ID.
+APPROVED_SOURCE_MODELS: dict[str, str] = {
+    "smollm2-1.7b": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
+    "phi-3.5-mini": "microsoft/Phi-3.5-mini-instruct",
+    "mistral-7b": "mistralai/Mistral-7B-Instruct-v0.3",
+    "qwen2.5-7b": "Qwen/Qwen2.5-7B-Instruct",
+    "llama-3.1-8b": "meta-llama/Llama-3.1-8B-Instruct",
+}
+
+APPROVED_SOURCE_IDS: set[str] = set(APPROVED_SOURCE_MODELS.values())
+
 
 class GPUInfo:
     """Detect GPU information from the runtime."""
@@ -139,7 +152,21 @@ class RuntimeHandler:
         if self.is_model_loaded:
             return {"status": "ERROR", "error": f"Model already loaded: {self._model_name}"}
 
-        load_id = source_model_id or model_id
+        # Security: resolve and validate source_model_id
+        if source_model_id:
+            load_id = source_model_id
+        elif model_id in APPROVED_SOURCE_MODELS:
+            load_id = APPROVED_SOURCE_MODELS[model_id]
+        else:
+            return {"status": "ERROR",
+                    "error": f"Model '{model_id}' not in approved registry. "
+                             f"Approved models: {list(APPROVED_SOURCE_MODELS.keys())}"}
+
+        if load_id not in APPROVED_SOURCE_IDS:
+            return {"status": "ERROR",
+                    "error": f"Source model '{load_id}' not in approved whitelist. "
+                             f"Allowed: {sorted(APPROVED_SOURCE_IDS)}"}
+
         try:
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
