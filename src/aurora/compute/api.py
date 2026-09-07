@@ -209,6 +209,42 @@ async def shutdown_worker(worker_id: str, req: WorkerShutdown) -> dict:
         raise HTTPException(status_code=401, detail=str(e))
 
 
+# ── Worker Job Dispatch (for runtime operations) ────────────────
+
+@router.get("/api/v1/compute/workers/{worker_id}/jobs/pending")
+async def get_pending_jobs(worker_id: str) -> dict:
+    """Worker polls for pending jobs during heartbeat."""
+    manager = _get_manager()
+    jobs = manager.get_pending_jobs_for_worker(worker_id)
+    return {
+        "worker_id": worker_id,
+        "jobs": [
+            {
+                "job_id": j.job_id,
+                "workload_type": j.workload_type.value if hasattr(j.workload_type, 'value') else str(j.workload_type),
+                "payload": j.metadata.get("payload", {}),
+            }
+            for j in jobs
+        ],
+        "count": len(jobs),
+    }
+
+
+@router.post("/api/v1/compute/workers/{worker_id}/jobs/{job_id}/result")
+async def report_job_result(worker_id: str, job_id: str, result: dict) -> dict:
+    """Worker reports job completion with result."""
+    manager = _get_manager()
+    try:
+        job = manager.complete_worker_job(
+            job_id,
+            result=result,
+            result_hash=result.get("result_hash"),
+        )
+        return {"completed": True, "job_id": job_id}
+    except JobNotFound as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
 # ── Audit ────────────────────────────────────────────────────────
 
 @router.get("/api/v1/compute/audit")

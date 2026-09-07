@@ -228,7 +228,7 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 
 ## Testing
 
-177 tests covering:
+263 tests covering:
 
 ### Compute Fabric (103 tests)
 - Worker Protocol v2 schemas
@@ -244,6 +244,7 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 - Job lifecycle (submit, progress, complete, fail)
 - Job cancellation
 - Benchmark execution
+- Job dispatch to worker (pending queue, result reporting)
 - Worker authentication (valid, invalid, protocol mismatch)
 - Audit events
 - Security (payload validation, no arbitrary exec, no secret leakage)
@@ -254,7 +255,68 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 - Model registry (default models, lookup, VRAM estimation)
 - Security (prompt validation, code exec prevention, model ID validation)
 - Runtime manager (lifecycle, discovery, load/unload, inference, provenance)
+- Runtime manager job dispatch (RUNTIME_LOAD, RUNTIME_UNLOAD, RUNTIME_INFER)
 - Compute runtime provider (LLM interface bridge)
 - REST API (health, runtimes, inference, registry)
 - Worker runtime handler (discover, load, unload, infer, health)
+- Worker job polling (pending jobs, result reporting)
 - Edge cases (defaults, bounds, limitations)
+
+## Live Tesla T4 Verification
+
+### Prerequisites
+- Google Colab GPU runtime (T4 recommended)
+- Connected Colab worker (Cell 3 in notebook)
+- Backend running with `AURORA_COLAB_WORKER_ENABLED=true`
+
+### Verification Model
+- **Model ID**: `smollm2-1.7b`
+- **Model Name**: SmolLM2 1.7B Instruct
+- **Framework**: transformers + PyTorch
+- **Expected Device**: CUDA (GPU)
+- **Expected VRAM**: ~2 GB
+
+### Load Process
+1. Worker polls for `RUNTIME_LOAD` job
+2. Worker downloads model from HuggingFace
+3. Worker loads model to GPU via `device_map="auto"`
+4. Worker reports `LOADED` status with memory info
+
+### Inference Process
+1. RuntimeManager dispatches `RUNTIME_INFER` job
+2. Worker polls and receives job
+3. Worker tokenizes prompt on GPU
+4. Worker runs `model.generate()` on Tesla T4
+5. Worker decodes output tokens
+6. Worker reports result with timing and hashes
+7. RuntimeManager builds provenance
+
+### Provenance
+Every inference includes:
+- `job_id`, `inference_id`, `worker_id`, `runtime_id`
+- `model_id`, `model_name`, `model_version`
+- `execution_device`, `gpu_name`, `framework`, `dtype`
+- `prompt_hash`, `output_hash`
+- `tokens_generated`, `generation_time_seconds`, `tokens_per_second`
+- `evidence_class`: `MODEL_INFERENCE`
+- `limitations`: populated for incomplete/error/low-performance results
+
+### Runtime States
+```
+UNAVAILABLE → DISCOVERING → READY → LOADING → READY (model loaded)
+                                        ↘ ERROR
+                     READY → UNLOADING → READY (model unloaded)
+```
+
+### Failure Conditions
+- Worker not connected → `WorkerNotFound`
+- Model not in registry → `Model not in approved registry`
+- Insufficient VRAM → `Insufficient VRAM`
+- Model load timeout → `TimeoutError`
+- Inference timeout → `InferenceStatus.TIMEOUT`
+- CUDA OOM → `InferenceStatus.FAILED`
+
+### Verification Levels
+- **AUTOMATED VERIFIED**: Code and tests pass
+- **LIVE GPU VERIFIED**: Connected Colab worker executed the workload
+- **LIVE MODEL VERIFIED**: Actual model loaded on Tesla T4 and generated inference

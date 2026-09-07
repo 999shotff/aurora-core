@@ -36,10 +36,12 @@ In Colab:
 |------|---------|
 | Cell 1 | Configure backend URL and worker token (secure input) |
 | Cell 2 | Detect GPU hardware from runtime |
-| Cell 3 | Connect worker to AURORA backend |
-| Cell 4 | Start heartbeat loop (worker stays READY) |
-| Cell 5 | Run GPU benchmark (real matrix multiplication) |
-| Cell 6 | Disconnect worker cleanly |
+| Cell 3 | Connect worker + start heartbeat + job polling |
+| Cell 4 | Run GPU benchmark (real matrix multiplication) |
+| Cell 5 | Load model (smollm2-1.7b) on Tesla T4 |
+| Cell 6 | Run inference on loaded model |
+| Cell 7 | Check runtime status via API |
+| Cell 8 | Disconnect worker cleanly |
 
 ### 5. Verify Connection
 
@@ -71,10 +73,35 @@ Cell 5 runs a real matrix multiplication benchmark:
 
 ### 7. Disconnect
 
-Cell 6 gracefully shuts down the worker:
+Cell 8 gracefully shuts down the worker:
 - Stops heartbeat loop
 - Sends shutdown to backend
 - Backend marks worker as DISCONNECTED
+
+## Model Runtime
+
+After connecting (Cell 3), the worker can load and run models:
+
+### Load Model (Cell 5)
+- Downloads model from HuggingFace
+- Loads to GPU via `device_map="auto"`
+- Reports load time and memory usage
+- Model stays loaded for inference
+
+### Run Inference (Cell 6)
+- Tokenizes prompt on GPU
+- Runs `model.generate()` on Tesla T4
+- Reports output, timing, and hashes
+- Provenance recorded for audit trail
+
+### Approved Models
+| Model | VRAM | Best For |
+|-------|------|----------|
+| `smollm2-1.7b` | 2 GB | Low-VRAM, fast inference |
+| `phi-3.5-mini` | 4 GB | Strong reasoning, small size |
+| `mistral-7b` | 7 GB | Strong reasoning per parameter |
+| `qwen2.5-7b` | 7 GB | Multilingual, coding |
+| `llama-3.1-8b` | 8 GB | General reasoning |
 
 ## Session Behavior
 

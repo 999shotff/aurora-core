@@ -151,6 +151,26 @@ from aurora.compute.api import router as compute_router
 
 app.include_router(compute_router)
 
+# Model Runtime: Mount runtime sub-application
+from aurora.runtime.api import router as runtime_router
+from aurora.runtime.manager import RuntimeManager
+from aurora.runtime.api import set_runtime_manager as set_runtime_manager_fn
+
+_runtime_manager_instance: RuntimeManager | None = None
+
+
+def _ensure_runtime_manager() -> RuntimeManager:
+    global _runtime_manager_instance
+    if _runtime_manager_instance is None:
+        from aurora.compute.api import _get_manager as _get_compute_manager
+        _runtime_manager_instance = RuntimeManager(_get_compute_manager())
+        set_runtime_manager_fn(_runtime_manager_instance)
+    return _runtime_manager_instance
+
+
+_ensure_runtime_manager()
+app.include_router(runtime_router)
+
 # Unified Analysis: Mount analysis sub-application
 from aurora.analysis.api import router as analysis_router
 

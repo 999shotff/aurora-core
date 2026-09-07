@@ -79,6 +79,8 @@ class ComputeManager:
         self._worker_last_seen: dict[str, float] = {}
         self._total_completed = 0
         self._worker_api_token = os.environ.get("AURORA_COMPUTE_WORKER_TOKEN", "")
+        self._pending_jobs: dict[str, list[ComputeJob]] = {}  # worker_id -> pending jobs
+        self._completed_jobs: dict[str, ComputeJob] = {}  # job_id -> completed job
 
     @property
     def enabled(self) -> bool:
@@ -470,3 +472,67 @@ class ComputeManager:
 
     def get_audit_log(self, limit: int = 50) -> list:
         return self._audit.get_entries(limit)
+
+    # ── Job Queue (for runtime operations) ───────────────────
+
+    def dispatch_job_to_worker(self, worker_id: str, workload_type: str,
+                                payload: dict) -> ComputeJob:
+        """Queue a job for a specific worker. Worker polls for pending jobs."""
+        if worker_id not in self._workers:
+            raise WorkerNotFound(f"Worker {worker_id} not registered")
+
+        job_id = f"job-rt-{uuid.uuid4().hex[:12]}"
+        job = ComputeJob(
+            job_id=job_id,
+            workload_type=workload_type,
+            provider_id=self._workers[worker_id],
+            provider_type=ComputeProviderType.GOOGLE_COLAB,
+            worker_id=worker_id,
+            status=JobStatus.QUEUED,
+            metadata={"payload": payload},
+        )
+        self._jobs[job_id] = job
+        if worker_id not in self._pending_jobs:
+            self._pending_jobs[worker_id] = []
+        self._pending_jobs[worker_id].append(job)
+
+        self._audit.record(
+            AuditAction.JOB_SUBMITTED,
+            provider_id=self._workers[worker_id],
+            job_id=job_id,
+            detail=f"Dispatched to worker {worker_id}: {workload_type}",
+        )
+        return job
+
+    def get_pending_jobs_for_worker(self, worker_id: str) -> list[ComputeJob]:
+        """Get pending jobs for a worker. Called by worker during heartbeat."""
+        jobs = self._pending_jobs.get(worker_id, [])
+        return [j for j in jobs if j.status == JobStatus.QUEUED]
+
+    def complete_worker_job(self, job_id: str, result: dict,
+                            result_hash: str | None = None) -> ComputeJob:
+        """Worker reports job completion with result."""
+        job = self._jobs.get(job_id)
+        if not job:
+            raise JobNotFound(f"Job {job_id} not found")
+
+        job.status = JobStatus.COMPLETED
+        job.completed_at = time.time()
+        job.progress = 1.0
+        job.result = result
+        job.result_hash = result_hash
+
+        # Remove from pending
+        if job.worker_id and job.worker_id in self._pending_jobs:
+            self._pending_jobs[job.worker_id] = [
+                j for j in self._pending_jobs[job.worker_id] if j.job_id != job_id
+            ]
+
+        self._completed_jobs[job_id] = job
+        self._total_completed += 1
+        self._audit.record(
+            AuditAction.JOB_COMPLETED,
+            provider_id=job.provider_id,
+            job_id=job_id,
+        )
+        return job

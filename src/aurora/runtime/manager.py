@@ -383,7 +383,7 @@ class RuntimeManager:
         )
 
     # --------------------------------------------------------
-    # Internal helpers
+    # Internal helpers — dispatch to compute fabric
     # --------------------------------------------------------
 
     def _gpu_has_enough_vram(self, worker_vram_mb: float | None,
@@ -404,20 +404,75 @@ class RuntimeManager:
                 return rt
         return None
 
+    def _find_any_ready_worker(self) -> str | None:
+        """Find a worker that is registered and ready."""
+        try:
+            status = self._compute.get_status()
+            for provider in status.providers:
+                if provider.worker_id and provider.worker_status.value == "READY":
+                    return provider.worker_id
+        except Exception:
+            pass
+        return None
+
     async def _send_load_command(
         self, worker: Any, model_config: Any, dtype: str | None
     ) -> None:
-        pass
+        """Dispatch RUNTIME_LOAD job to the connected worker via compute fabric."""
+        worker_id = worker.worker_id if hasattr(worker, 'worker_id') else str(worker)
+        payload = {
+            "model_id": model_config.model_id,
+            "dtype": dtype or model_config.dtype,
+        }
+        job = self._compute.dispatch_job_to_worker(
+            worker_id, "RUNTIME_LOAD", payload
+        )
+        logger.info("Dispatched RUNTIME_LOAD to %s: job %s", worker_id, job.job_id)
 
     async def _send_unload_command(
         self, worker_id: str, runtime_id: str
     ) -> None:
-        pass
+        """Dispatch RUNTIME_UNLOAD job to the connected worker."""
+        payload = {"runtime_id": runtime_id}
+        job = self._compute.dispatch_job_to_worker(
+            worker_id, "RUNTIME_UNLOAD", payload
+        )
+        logger.info("Dispatched RUNTIME_UNLOAD to %s: job %s", worker_id, job.job_id)
 
     async def _execute_inference(
         self, worker_id: str, request: InferenceRequest, prompt_hash: str
     ) -> tuple[str, float]:
+        """Dispatch RUNTIME_INFER job and wait for result via polling."""
+        import asyncio
+
+        payload = {
+            "model_id": request.model_id,
+            "prompt": request.prompt,
+            "max_new_tokens": request.max_new_tokens,
+            "temperature": request.temperature,
+            "top_p": request.top_p,
+        }
+        job = self._compute.dispatch_job_to_worker(
+            worker_id, "RUNTIME_INFER", payload
+        )
+        logger.info("Dispatched RUNTIME_INFER to %s: job %s", worker_id, job.job_id)
+
+        # Poll for job completion
         start = time.time()
-        output = f"[SIMULATED] Inference for prompt hash {prompt_hash}"
-        gen_time = time.time() - start
-        return output, gen_time
+        timeout = request.timeout_seconds
+        poll_interval = 1.0
+
+        while (time.time() - start) < timeout:
+            try:
+                completed_job = self._compute._completed_jobs.get(job.job_id)
+                if completed_job and completed_job.status.value == "COMPLETED":
+                    result_data = completed_job.result
+                    output = result_data.get("output", "")
+                    gen_time = result_data.get("generation_time_seconds", 0.0)
+                    return output, gen_time
+            except Exception:
+                pass
+            await asyncio.sleep(poll_interval)
+            poll_interval = min(poll_interval * 1.2, 3.0)
+
+        raise TimeoutError(f"Inference timed out after {timeout}s")

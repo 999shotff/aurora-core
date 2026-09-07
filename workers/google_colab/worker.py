@@ -373,6 +373,77 @@ class AuroraColabWorker:
                 self._reconnect()
             time.sleep(self._heartbeat_interval)
 
+    def _job_poll_loop(self) -> None:
+        """Poll for pending jobs from the backend. Executes runtime workloads."""
+        poll_interval = 2.0
+        while self._running:
+            if not self._connected:
+                time.sleep(5)
+                continue
+            try:
+                pending = self._poll_pending_jobs()
+                if pending:
+                    poll_interval = 1.0  # Fast poll when jobs exist
+                    for job in pending:
+                        self._execute_dispatched_job(job)
+                else:
+                    poll_interval = min(poll_interval * 1.1, 5.0)
+            except Exception as e:
+                logger.error("Job poll error: %s", e)
+            time.sleep(poll_interval)
+
+    def _poll_pending_jobs(self) -> list[dict]:
+        """Fetch pending jobs from backend."""
+        resp = self._api_get(f"/api/v1/compute/workers/{self.worker_id}/jobs/pending")
+        if resp and resp.get("jobs"):
+            return resp["jobs"]
+        return []
+
+    def _api_get(self, path: str) -> dict | None:
+        url = f"{self._backend_url}{path}"
+        try:
+            resp = self._session.get(url, timeout=10)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except requests.RequestException:
+            return None
+
+    def _execute_dispatched_job(self, job: dict) -> None:
+        """Execute a dispatched job and report result back."""
+        job_id = job.get("job_id")
+        workload_type = job.get("workload_type", "")
+        payload = job.get("payload", {})
+        self._current_job_id = job_id
+
+        logger.info("Executing dispatched job %s: %s", job_id, workload_type)
+
+        try:
+            result = self._execute_workload(workload_type, payload)
+            result_hash = hashlib.sha256(
+                str(sorted(result.items())).encode()
+            ).hexdigest()[:16]
+            result["result_hash"] = result_hash
+
+            self._api_post(
+                f"/api/v1/compute/workers/{self.worker_id}/jobs/{job_id}/result",
+                result,
+            )
+            logger.info("Job %s completed: %s", job_id, workload_type)
+        except Exception as e:
+            logger.error("Job %s failed: %s", job_id, e)
+            error_result = {
+                "status": "FAILED",
+                "error": str(e)[:500],
+                "workload": workload_type,
+            }
+            self._api_post(
+                f"/api/v1/compute/workers/{self.worker_id}/jobs/{job_id}/result",
+                error_result,
+            )
+        finally:
+            self._current_job_id = None
+
     def _reconnect(self) -> bool:
         attempts = 0
         while attempts < MAX_RECONNECT_ATTEMPTS and self._running:
@@ -526,6 +597,9 @@ class AuroraColabWorker:
 
         heartbeat_thread = threading.Thread(target=self._heartbeat_loop, daemon=True)
         heartbeat_thread.start()
+
+        job_poll_thread = threading.Thread(target=self._job_poll_loop, daemon=True)
+        job_poll_thread.start()
 
         logger.info("Worker %s running. Press Ctrl+C to stop.", self.worker_id)
         try:
