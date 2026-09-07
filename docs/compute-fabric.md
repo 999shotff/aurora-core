@@ -228,15 +228,16 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 
 ## Testing
 
-263 tests covering:
+300+ tests covering:
 
-### Compute Fabric (103 tests)
+### Compute Fabric (120+ tests)
 - Worker Protocol v2 schemas
 - Enhanced provider status model
 - Worker lifecycle (register, heartbeat, disconnect, reconnect)
 - Provider registry
 - Colab provider (config, register, heartbeat, timeout, GPU, health)
 - Lightning provider (config, register, heartbeat, status, health)
+- Lightning worker runtime (RuntimeHandler, source model resolution, security, capabilities)
 - CPU fallback
 - AUTO routing
 - Explicit provider routing
@@ -250,46 +251,72 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 - Security (payload validation, no arbitrary exec, no secret leakage)
 - Stale worker detection
 
-### Model Runtime (74 tests)
-- Schema validation (ModelConfig, RuntimeInfo, InferenceRequest, InferenceResult)
-- Model registry (default models, lookup, VRAM estimation)
-- Security (prompt validation, code exec prevention, model ID validation)
+### Model Runtime (99 tests)
+- Schema validation (ModelConfig with source_model_id, RuntimeInfo, InferenceRequest, InferenceResult)
+- Model registry (default models, lookup, VRAM estimation, source_model_id resolution)
+- Security (prompt validation, code exec prevention, model ID validation, source ID whitelist)
 - Runtime manager (lifecycle, discovery, load/unload, inference, provenance)
 - Runtime manager job dispatch (RUNTIME_LOAD, RUNTIME_UNLOAD, RUNTIME_INFER)
 - Compute runtime provider (LLM interface bridge)
 - REST API (health, runtimes, inference, registry)
-- Worker runtime handler (discover, load, unload, infer, health)
+- Worker runtime handler — Colab (discover, load, unload, infer, health)
+- Worker runtime handler — Lightning (discover, load, unload, infer, health, source resolution)
 - Worker job polling (pending jobs, result reporting)
 - Edge cases (defaults, bounds, limitations)
 
-## Live Tesla T4 Verification
+## Provider Status
 
-### Prerequisites
-- Google Colab GPU runtime (T4 recommended)
-- Connected Colab worker (Cell 3 in notebook)
-- Backend running with `AURORA_COLAB_WORKER_ENABLED=true`
+### Lightning AI — Active Development
+- Worker client: **COMPLETE** (RuntimeHandler, job polling, runtime workloads)
+- GPU detection: **COMPLETE** (PyTorch CUDA + nvidia-smi fallback)
+- Benchmark: **COMPLETE** (real GPU matrix multiply)
+- Model runtime: **COMPLETE** (load, unload, infer via source_model_id resolution)
+- Security: **COMPLETE** (APPROVED_SOURCE_MODELS whitelist, reject arbitrary IDs/URLs)
+- Live GPU: **PENDING** — waiting for user to connect a real Lightning worker
+- Live inference: **PENDING** — requires connected Lightning GPU
 
-### Verification Model
-- **Model ID**: `smollm2-1.7b`
-- **Model Name**: SmolLM2 1.7B Instruct
+### Google Colab — Temporarily Deferred
+- Worker connection: previously successful
+- Tesla T4 detection: successful
+- Real GPU benchmark: successful
+- Compute Fabric integration: successful
+- Live model inference: **PENDING** — source-model-ID resolution fixed, needs re-verification
+- Status: Code intact, deferred until Lightning milestone complete
+
+## Live GPU Verification
+
+### Lightning AI (Active)
+
+**Prerequisites:**
+- Lightning AI GPU instance
+- `pip install requests torch transformers`
+- `AURORA_BACKEND_URL` and `AURORA_WORKER_TOKEN` env vars set
+- Backend running with `AURORA_COMPUTE_WORKER_TOKEN` set
+
+**Verification Model:**
+- **Model ID**: `qwen2.5-0.5b-instruct`
+- **Source Model ID**: `Qwen/Qwen2.5-0.5B-Instruct`
+- **Display Name**: Qwen2.5 0.5B Instruct
 - **Framework**: transformers + PyTorch
 - **Expected Device**: CUDA (GPU)
-- **Expected VRAM**: ~2 GB
+- **Expected VRAM**: ~1.5 GB
 
-### Load Process
-1. Worker polls for `RUNTIME_LOAD` job
-2. Worker downloads model from HuggingFace
-3. Worker loads model to GPU via `device_map="auto"`
-4. Worker reports `LOADED` status with memory info
+**Connection Steps:**
+1. Set `AURORA_COMPUTE_WORKER_TOKEN` on backend
+2. On Lightning instance: `export AURORA_BACKEND_URL=https://aurora-core-1-txvl.onrender.com`
+3. On Lightning instance: `export AURORA_WORKER_TOKEN=<your-token>`
+4. Run: `python workers/lightning/worker.py`
+5. Worker detects GPU → registers → sends heartbeat → READY
+6. Backend dispatches RUNTIME_LOAD job with `source_model_id: Qwen/Qwen2.5-0.5B-Instruct`
+7. Worker downloads and loads model on GPU
+8. Backend dispatches RUNTIME_INFER job
+9. Worker runs `model.generate()` on GPU
+10. Worker reports result with timing and provenance
 
-### Inference Process
-1. RuntimeManager dispatches `RUNTIME_INFER` job
-2. Worker polls and receives job
-3. Worker tokenizes prompt on GPU
-4. Worker runs `model.generate()` on Tesla T4
-5. Worker decodes output tokens
-6. Worker reports result with timing and hashes
-7. RuntimeManager builds provenance
+### Google Colab (Deferred)
+
+Previously verified: Worker connection, Tesla T4 detection, GPU benchmark.
+Live model inference pending re-verification after source-model-ID fix.
 
 ### Provenance
 Every inference includes:
@@ -317,6 +344,10 @@ UNAVAILABLE → DISCOVERING → READY → LOADING → READY (model loaded)
 - CUDA OOM → `InferenceStatus.FAILED`
 
 ### Verification Levels
-- **AUTOMATED VERIFIED**: Code and tests pass
-- **LIVE GPU VERIFIED**: Connected Colab worker executed the workload
-- **LIVE MODEL VERIFIED**: Actual model loaded on Tesla T4 and generated inference
+- **CODE VERIFIED**: Code and tests pass (current)
+- **GPU CONNECTED**: Connected Lightning worker detected GPU (pending)
+- **GPU BENCHMARK VERIFIED**: Real matrix multiply executed on Lightning GPU (pending)
+- **MODEL LOADED**: `Qwen/Qwen2.5-0.5B-Instruct` loaded on Lightning GPU (pending)
+- **REAL INFERENCE VERIFIED**: Actual model generated output on Lightning GPU (pending)
+
+Never claim a higher level without evidence.

@@ -1001,3 +1001,183 @@ class TestStaleWorkerDetection:
             assert "w-1" in stale
         finally:
             os.environ.pop("AURORA_COLAB_WORKER_ENABLED", None)
+
+
+# ============================================================
+# Lightning Worker Runtime Tests
+# ============================================================
+
+
+class TestLightningWorkerRuntime:
+    """Tests for Lightning AI worker RuntimeHandler and lifecycle."""
+
+    def _make_handler(self):
+        from workers.lightning.worker import RuntimeHandler
+        gpu_info = {
+            "name": "Tesla T4",
+            "vram_mb": 15360.0,
+            "cuda_version": "12.2",
+        }
+        return RuntimeHandler(gpu_info)
+
+    def test_handler_create(self):
+        handler = self._make_handler()
+        assert handler is not None
+        assert not handler.is_model_loaded
+
+    def test_handler_discover(self):
+        handler = self._make_handler()
+        result = handler.discover()
+        assert "status" in result
+        assert "gpu_name" in result
+
+    def test_handler_health_not_loaded(self):
+        handler = self._make_handler()
+        health = handler.health()
+        assert health["model_status"] == "NOT_LOADED"
+        assert health["total_inferences"] == 0
+
+    def test_handler_load_rejects_unregistered(self):
+        handler = self._make_handler()
+        result = handler.load_model("totally-fake-model")
+        assert result["status"] == "ERROR"
+        assert "not in approved registry" in result["error"]
+
+    def test_handler_load_rejects_arbitrary_source(self):
+        handler = self._make_handler()
+        result = handler.load_model(
+            "qwen2.5-0.5b-instruct",
+            source_model_id="evil-user/malicious-repo",
+        )
+        assert result["status"] == "ERROR"
+        assert "not in approved whitelist" in result["error"]
+
+    def test_handler_load_rejects_url_as_source(self):
+        handler = self._make_handler()
+        result = handler.load_model(
+            "qwen2.5-0.5b-instruct",
+            source_model_id="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct",
+        )
+        assert result["status"] == "ERROR"
+        assert "not in approved whitelist" in result["error"]
+
+    def test_handler_unload_not_loaded(self):
+        handler = self._make_handler()
+        result = handler.unload_model()
+        assert result["status"] == "NOT_LOADED"
+
+    def test_handler_infer_not_loaded(self):
+        handler = self._make_handler()
+        result = handler.infer("test prompt")
+        assert result["status"] == "ERROR"
+        assert "No model loaded" in result["error"]
+
+    def test_whitelist_has_qwen_05b(self):
+        from workers.lightning.worker import APPROVED_SOURCE_MODELS, APPROVED_SOURCE_IDS
+        assert "qwen2.5-0.5b-instruct" in APPROVED_SOURCE_MODELS
+        assert APPROVED_SOURCE_MODELS["qwen2.5-0.5b-instruct"] == "Qwen/Qwen2.5-0.5B-Instruct"
+        assert "Qwen/Qwen2.5-0.5B-Instruct" in APPROVED_SOURCE_IDS
+
+    def test_whitelist_has_six_models(self):
+        from workers.lightning.worker import APPROVED_SOURCE_MODELS
+        assert len(APPROVED_SOURCE_MODELS) == 6
+
+    def test_source_model_id_resolution(self):
+        from workers.lightning.worker import APPROVED_SOURCE_MODELS
+        assert APPROVED_SOURCE_MODELS["qwen2.5-0.5b-instruct"] == "Qwen/Qwen2.5-0.5B-Instruct"
+        assert APPROVED_SOURCE_MODELS["smollm2-1.7b"] == "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+        assert APPROVED_SOURCE_MODELS["phi-3.5-mini"] == "microsoft/Phi-3.5-mini-instruct"
+        assert APPROVED_SOURCE_MODELS["mistral-7b"] == "mistralai/Mistral-7B-Instruct-v0.3"
+        assert APPROVED_SOURCE_MODELS["qwen2.5-7b"] == "Qwen/Qwen2.5-7B-Instruct"
+        assert APPROVED_SOURCE_MODELS["llama-3.1-8b"] == "meta-llama/Llama-3.1-8B-Instruct"
+
+    def test_internal_ids_never_match_source_ids(self):
+        from workers.lightning.worker import APPROVED_SOURCE_MODELS
+        for internal, source in APPROVED_SOURCE_MODELS.items():
+            assert internal != source, f"{internal} == {source}"
+
+    def test_worker_version(self):
+        from workers.lightning.worker import WORKER_VERSION, PROTOCOL_VERSION
+        assert WORKER_VERSION == "0.3.0"
+        assert PROTOCOL_VERSION == "2.0"
+
+    def test_worker_has_runtime_handler(self):
+        from workers.lightning.worker import AuroraLightningWorker
+        worker = AuroraLightningWorker(
+            backend_url="https://example.com",
+            worker_token="test-token",
+        )
+        assert worker._runtime_handler is None
+
+    def test_worker_builds_capabilities_with_runtime(self):
+        from workers.lightning.worker import AuroraLightningWorker
+        worker = AuroraLightningWorker(
+            backend_url="https://example.com",
+            worker_token="test-token",
+        )
+        worker._gpu_info = {"name": "Tesla T4", "vram_mb": 15360.0}
+        caps = worker._build_capabilities()
+        assert caps["runtime"] is True
+        assert caps["benchmark"] is True
+        assert caps["framework"] == "pytorch"
+
+    def test_worker_connect_initializes_runtime_handler(self):
+        from workers.lightning.worker import AuroraLightningWorker
+        from unittest.mock import patch, MagicMock
+
+        worker = AuroraLightningWorker(
+            backend_url="https://example.com",
+            worker_token="test-token",
+        )
+        worker._gpu_info = {"name": "Tesla T4", "vram_mb": 15360.0}
+
+        mock_ack = {"accepted": True, "worker_id": "test-worker"}
+        with patch.object(worker, "_api_post", return_value=mock_ack):
+            result = worker.connect()
+
+        assert result is True
+        assert worker._runtime_handler is not None
+
+    def test_tokenizer_receives_source_model_id(self):
+        from workers.lightning.worker import RuntimeHandler
+        from unittest.mock import patch, MagicMock
+
+        handler = self._make_handler()
+        mock_tokenizer = MagicMock()
+        mock_model_inst = MagicMock()
+        mock_model_inst.device = "cuda:0"
+
+        mock_transformers = MagicMock()
+        mock_transformers.AutoTokenizer.from_pretrained.return_value = mock_tokenizer
+        mock_transformers.AutoModelForCausalLM.from_pretrained.return_value = mock_model_inst
+
+        with patch.dict("sys.modules", {"transformers": mock_transformers, "torch": MagicMock()}):
+            handler.load_model("qwen2.5-0.5b-instruct", dtype="float16")
+
+        mock_transformers.AutoTokenizer.from_pretrained.assert_called_once_with(
+            "Qwen/Qwen2.5-0.5B-Instruct"
+        )
+
+    def test_model_loader_receives_source_model_id(self):
+        from workers.lightning.worker import RuntimeHandler
+        from unittest.mock import patch, MagicMock
+
+        handler = self._make_handler()
+        mock_tokenizer = MagicMock()
+        mock_model_inst = MagicMock()
+        mock_model_inst.device = "cuda:0"
+
+        mock_torch = MagicMock()
+        mock_torch.float16 = "float16"
+        mock_transformers = MagicMock()
+        mock_transformers.AutoTokenizer.from_pretrained.return_value = mock_tokenizer
+        mock_transformers.AutoModelForCausalLM.from_pretrained.return_value = mock_model_inst
+
+        with patch.dict("sys.modules", {"transformers": mock_transformers, "torch": mock_torch}):
+            handler.load_model("qwen2.5-0.5b-instruct", dtype="float16")
+
+        mock_transformers.AutoModelForCausalLM.from_pretrained.assert_called_once_with(
+            "Qwen/Qwen2.5-0.5B-Instruct",
+            torch_dtype=mock_torch.float16,
+            device_map="auto",
+        )
