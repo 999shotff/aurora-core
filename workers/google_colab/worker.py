@@ -93,6 +93,162 @@ class GPUInfo:
         return info
 
 
+class RuntimeHandler:
+    """Handles model runtime operations on the worker side."""
+
+    def __init__(self, gpu_info: dict) -> None:
+        self._gpu_info = gpu_info
+        self._loaded_model = None
+        self._model_name: str | None = None
+        self._model_config: dict | None = None
+        self._load_time: float | None = None
+        self._total_inferences = 0
+        self._total_errors = 0
+
+    @property
+    def is_model_loaded(self) -> bool:
+        return self._loaded_model is not None
+
+    @property
+    def loaded_model_id(self) -> str | None:
+        return self._model_name
+
+    def discover(self) -> dict:
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+            pytorch_version = torch.__version__ if has_cuda else None
+            cuda_version = torch.version.cuda if has_cuda else None
+        except ImportError:
+            has_cuda = False
+            pytorch_version = None
+            cuda_version = None
+
+        return {
+            "status": "READY" if has_cuda else "ERROR",
+            "gpu_name": self._gpu_info.get("name"),
+            "vram_mb": self._gpu_info.get("vram_mb"),
+            "cuda_version": cuda_version,
+            "pytorch_version": pytorch_version,
+            "model_status": "LOADED" if self.is_model_loaded else "NOT_LOADED",
+            "loaded_model": self._model_name,
+        }
+
+    def load_model(self, model_id: str, dtype: str | None = None) -> dict:
+        if self.is_model_loaded:
+            return {"status": "ERROR", "error": f"Model already loaded: {self._model_name}"}
+
+        try:
+            import torch
+            from transformers import AutoModelForCausalLM, AutoTokenizer
+
+            start = time.time()
+            torch_dtype = getattr(torch, dtype, torch.float16) if dtype else torch.float16
+
+            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            model = AutoModelForCausalLM.from_pretrained(
+                model_id,
+                torch_dtype=torch_dtype,
+                device_map="auto",
+            )
+
+            self._loaded_model = model
+            self._model_name = model_id
+            self._model_config = {"dtype": str(torch_dtype), "device": str(model.device)}
+            self._load_time = time.time() - start
+
+            mem_used = torch.cuda.memory_allocated() / (1024 * 1024) if torch.cuda.is_available() else 0
+
+            return {
+                "status": "LOADED",
+                "model_id": model_id,
+                "load_time_seconds": round(self._load_time, 2),
+                "model_memory_mb": round(mem_used, 1),
+            }
+        except Exception as e:
+            self._total_errors += 1
+            return {"status": "ERROR", "error": str(e)[:500]}
+
+    def unload_model(self) -> dict:
+        if not self.is_model_loaded:
+            return {"status": "NOT_LOADED"}
+
+        try:
+            self._loaded_model = None
+            self._model_name = None
+            self._model_config = None
+            self._load_time = None
+
+            import torch
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+            return {"status": "NOT_LOADED"}
+        except Exception as e:
+            return {"status": "ERROR", "error": str(e)[:500]}
+
+    def health(self) -> dict:
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+            vram_used = torch.cuda.memory_allocated() / (1024 * 1024) if has_cuda else 0
+            vram_total = torch.cuda.get_device_properties(0).total_mem / (1024 * 1024) if has_cuda else 0
+        except Exception:
+            has_cuda = False
+            vram_used = 0
+            vram_total = 0
+
+        return {
+            "model_status": "LOADED" if self.is_model_loaded else "NOT_LOADED",
+            "loaded_model": self._model_name,
+            "gpu_available": has_cuda,
+            "vram_used_mb": round(vram_used, 1),
+            "vram_total_mb": round(vram_total, 1),
+            "total_inferences": self._total_inferences,
+            "total_errors": self._total_errors,
+        }
+
+    def infer(self, prompt: str, max_new_tokens: int = 256,
+              temperature: float = 0.7, top_p: float = 0.9) -> dict:
+        if not self.is_model_loaded:
+            return {"status": "ERROR", "error": "No model loaded"}
+
+        try:
+            import torch
+
+            start = time.time()
+            inputs = self._loaded_model.tokenizer(prompt, return_tensors="pt")
+            if torch.cuda.is_available():
+                inputs = {k: v.to("cuda") for k, v in inputs.items()}
+
+            with torch.no_grad():
+                outputs = self._loaded_model.generate(
+                    **inputs,
+                    max_new_tokens=max_new_tokens,
+                    temperature=temperature,
+                    top_p=top_p,
+                    do_sample=temperature > 0,
+                )
+
+            generated = outputs[0][inputs["input_ids"].shape[-1]:]
+            output_text = self._loaded_model.tokenizer.decode(generated, skip_special_tokens=True)
+            gen_time = time.time() - start
+
+            tokens = len(generated)
+            self._total_inferences += 1
+
+            return {
+                "status": "COMPLETED",
+                "output": output_text,
+                "tokens_generated": tokens,
+                "generation_time_seconds": round(gen_time, 3),
+                "tokens_per_second": round(tokens / gen_time, 1) if gen_time > 0 else 0,
+            }
+        except Exception as e:
+            self._total_errors += 1
+            return {"status": "FAILED", "error": str(e)[:500]}
+
+
 class AuroraColabWorker:
     """AURORA GPU worker for Google Colab.
 
@@ -118,6 +274,7 @@ class AuroraColabWorker:
         self._current_job_id: str | None = None
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
+        self._runtime_handler: RuntimeHandler | None = None
 
     @property
     def worker_id(self) -> str:
@@ -143,20 +300,29 @@ class AuroraColabWorker:
         logger.info("GPU detected: %s (%s MB)", self._gpu_info["name"], self._gpu_info["vram_mb"])
 
     def _build_capabilities(self) -> dict:
+        try:
+            import torch
+            pytorch_version = torch.__version__
+        except ImportError:
+            pytorch_version = None
+
         return {
             "inference": True,
             "embeddings": True,
             "vision": True,
             "training": True,
             "benchmark": True,
+            "runtime": True,
             "max_concurrency": 1,
             "gpu": self._gpu_info,
             "framework": "pytorch",
             "python_version": f"{sys.version_info.major}.{sys.version_info.minor}.{sys.version_info.micro}",
+            "pytorch_version": pytorch_version,
         }
 
     def connect(self) -> bool:
         self._detect_gpu()
+        self._runtime_handler = RuntimeHandler(self._gpu_info)
 
         registration = {
             "worker_id": self.worker_id,
@@ -252,8 +418,49 @@ class AuroraColabWorker:
             return {"provider": "colab", "workload": "INFERENCE", "message": "GPU inference ready"}
         elif workload_type == "EMBEDDINGS":
             return {"provider": "colab", "workload": "EMBEDDINGS", "message": "GPU embeddings ready"}
+        elif workload_type == "RUNTIME_DISCOVER":
+            return self._handle_runtime_discover(payload)
+        elif workload_type == "RUNTIME_LOAD":
+            return self._handle_runtime_load(payload)
+        elif workload_type == "RUNTIME_UNLOAD":
+            return self._handle_runtime_unload(payload)
+        elif workload_type == "RUNTIME_HEALTH":
+            return self._handle_runtime_health(payload)
+        elif workload_type == "RUNTIME_INFER":
+            return self._handle_runtime_infer(payload)
         else:
             return {"provider": "colab", "workload": workload_type, "message": "Processed on GPU"}
+
+    def _handle_runtime_discover(self, payload: dict) -> dict:
+        if not self._runtime_handler:
+            return {"status": "ERROR", "error": "Runtime not initialized"}
+        return {"provider": "colab", "workload": "RUNTIME_DISCOVER", **self._runtime_handler.discover()}
+
+    def _handle_runtime_load(self, payload: dict) -> dict:
+        if not self._runtime_handler:
+            return {"status": "ERROR", "error": "Runtime not initialized"}
+        model_id = payload.get("model_id", "")
+        dtype = payload.get("dtype")
+        return {"provider": "colab", "workload": "RUNTIME_LOAD", **self._runtime_handler.load_model(model_id, dtype)}
+
+    def _handle_runtime_unload(self, payload: dict) -> dict:
+        if not self._runtime_handler:
+            return {"status": "ERROR", "error": "Runtime not initialized"}
+        return {"provider": "colab", "workload": "RUNTIME_UNLOAD", **self._runtime_handler.unload_model()}
+
+    def _handle_runtime_health(self, payload: dict) -> dict:
+        if not self._runtime_handler:
+            return {"status": "ERROR", "error": "Runtime not initialized"}
+        return {"provider": "colab", "workload": "RUNTIME_HEALTH", **self._runtime_handler.health()}
+
+    def _handle_runtime_infer(self, payload: dict) -> dict:
+        if not self._runtime_handler:
+            return {"status": "ERROR", "error": "Runtime not initialized"}
+        prompt = payload.get("prompt", "")
+        max_new_tokens = payload.get("max_new_tokens", 256)
+        temperature = payload.get("temperature", 0.7)
+        top_p = payload.get("top_p", 0.9)
+        return {"provider": "colab", "workload": "RUNTIME_INFER", **self._runtime_handler.infer(prompt, max_new_tokens, temperature, top_p)}
 
     def _run_benchmark(self, payload: dict) -> dict:
         matrix_size = payload.get("matrix_size", 1024)

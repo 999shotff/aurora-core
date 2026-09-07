@@ -146,21 +146,65 @@ The GPU benchmark runs matrix multiplication to verify real GPU connectivity:
 
 ## Model Runtime Abstraction
 
-Future runtimes (not yet implemented):
-- llama.cpp
-- vLLM
-- Transformers
-- Ollama
+The Model Runtime provides lifecycle management for ML models on GPU workers:
 
-Interface:
-```python
-class ModelRuntime:
-    def load(model_id: str) -> None
-    def unload() -> None
-    def health() -> RuntimeStatus
-    def capabilities() -> ComputeCapabilities
-    def infer(input: dict) -> dict
 ```
+RuntimeManager → ComputeManager → Colab/Lightning Worker → GPU Runtime
+```
+
+### Runtime Lifecycle
+```
+UNAVAILABLE → DISCOVERING → READY → LOADING → READY (model loaded)
+                                        ↘ ERROR
+                     READY → UNLOADING → READY (model unloaded)
+```
+
+### Model Registry
+
+5 approved models by default:
+
+| Model | VRAM | Max Tokens | Best For |
+|-------|------|-----------|----------|
+| `smollm2-1.7b` | 2 GB | 8192 | Low-VRAM, fast inference |
+| `phi-3.5-mini` | 4 GB | 131072 | Strong reasoning, small size |
+| `mistral-7b` | 7 GB | 32768 | Strong reasoning per parameter |
+| `qwen2.5-7b` | 7 GB | 32768 | Multilingual, coding |
+| `llama-3.1-8b` | 8 GB | 131072 | General reasoning, instruction-tuned |
+
+### Runtime API Endpoints
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/v1/runtime/health` | Runtime health |
+| GET | `/api/v1/runtime/runtimes` | List active runtimes |
+| GET | `/api/v1/runtime/runtimes/{id}` | Get runtime details |
+| POST | `/api/v1/runtime/runtimes/discover` | Discover runtime on worker |
+| POST | `/api/v1/runtime/runtimes/load` | Load model on worker |
+| POST | `/api/v1/runtime/runtimes/unload` | Unload model from worker |
+| POST | `/api/v1/runtime/runtimes/{id}/health` | Runtime health check |
+| POST | `/api/v1/runtime/inference` | Run inference |
+| GET | `/api/v1/runtime/inference` | List inference jobs |
+| GET | `/api/v1/runtime/inference/{job_id}` | Get inference result |
+| GET | `/api/v1/runtime/registry` | Model registry |
+| GET | `/api/v1/runtime/registry/models` | List registered models |
+
+### Inference Provenance
+
+Every inference result includes full provenance:
+- `model_id`, `model_name`, `model_version`
+- `execution_device`, `gpu_name`, `framework`, `dtype`
+- `prompt_hash`, `output_hash`
+- `tokens_generated`, `generation_time_seconds`, `tokens_per_second`
+- `evidence_class`: always `MODEL_INFERENCE`
+- `limitations`: populated for incomplete/error/low-performance results
+
+### Security
+
+- Prompt validated against code execution patterns (import, exec, eval, subprocess)
+- Model ID validated against injection characters
+- Worker ID validated against injection
+- All inference results include provenance for audit trail
+- No arbitrary code execution. Only structured workloads.
 
 ## MatrAIx Integration
 
@@ -184,7 +228,9 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 
 ## Testing
 
-103 tests covering:
+177 tests covering:
+
+### Compute Fabric (103 tests)
 - Worker Protocol v2 schemas
 - Enhanced provider status model
 - Worker lifecycle (register, heartbeat, disconnect, reconnect)
@@ -198,8 +244,17 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 - Job lifecycle (submit, progress, complete, fail)
 - Job cancellation
 - Benchmark execution
-- Model runtime contract
 - Worker authentication (valid, invalid, protocol mismatch)
 - Audit events
 - Security (payload validation, no arbitrary exec, no secret leakage)
 - Stale worker detection
+
+### Model Runtime (74 tests)
+- Schema validation (ModelConfig, RuntimeInfo, InferenceRequest, InferenceResult)
+- Model registry (default models, lookup, VRAM estimation)
+- Security (prompt validation, code exec prevention, model ID validation)
+- Runtime manager (lifecycle, discovery, load/unload, inference, provenance)
+- Compute runtime provider (LLM interface bridge)
+- REST API (health, runtimes, inference, registry)
+- Worker runtime handler (discover, load, unload, infer, health)
+- Edge cases (defaults, bounds, limitations)

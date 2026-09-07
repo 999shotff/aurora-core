@@ -11,7 +11,10 @@ export type ComputeProviderStatus = 'DISABLED' | 'NOT_CONFIGURED' | 'CONFIGURED'
 export type WorkerStatus = 'OFFLINE' | 'CONNECTING' | 'AUTHENTICATING' | 'READY' | 'BUSY' | 'UNHEALTHY' | 'DISCONNECTED' | 'SHUTTING_DOWN';
 export type ComputeMode = 'AUTO' | 'CPU' | 'GOOGLE_COLAB' | 'LIGHTNING';
 export type JobStatus = 'QUEUED' | 'ASSIGNED' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'TIMEOUT';
-export type WorkloadType = 'INFERENCE' | 'EMBEDDINGS' | 'VISION' | 'TRAINING' | 'BENCHMARK' | 'CUSTOM';
+export type WorkloadType = 'INFERENCE' | 'EMBEDDINGS' | 'VISION' | 'TRAINING' | 'BENCHMARK' | 'RUNTIME_DISCOVER' | 'RUNTIME_LOAD' | 'RUNTIME_UNLOAD' | 'RUNTIME_HEALTH' | 'RUNTIME_INFER' | 'CUSTOM';
+export type RuntimeStatus = 'UNAVAILABLE' | 'DISCOVERING' | 'LOADING' | 'READY' | 'BUSY' | 'UNLOADING' | 'ERROR';
+export type ModelLoadStatus = 'NOT_LOADED' | 'LOADING' | 'LOADED' | 'UNLOADING' | 'ERROR';
+export type InferenceStatus = 'PENDING' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'TIMEOUT' | 'CANCELLED';
 
 export interface GPUInfo {
   name: string;
@@ -102,6 +105,76 @@ export interface BenchmarkResult {
   error: string | null;
 }
 
+export interface ModelConfig {
+  model_id: string;
+  model_name: string;
+  model_revision: string | null;
+  framework: string;
+  dtype: string;
+  device: string;
+  max_input_tokens: number;
+  max_output_tokens: number;
+  required_vram_gb: number;
+  capabilities: string[];
+  description: string;
+  source: string;
+  source_url: string | null;
+}
+
+export interface RuntimeInfo {
+  runtime_id: string;
+  status: RuntimeStatus;
+  model: ModelConfig | null;
+  model_load_status: ModelLoadStatus;
+  worker_id: string | null;
+  provider_type: string | null;
+  gpu_name: string | null;
+  vram_mb: number | null;
+  cuda_version: string | null;
+  framework: string | null;
+  pytorch_version: string | null;
+  model_memory_mb: number | null;
+  loaded_at: number | null;
+  last_inference_at: number | null;
+  total_inferences: number;
+  total_errors: number;
+  uptime_seconds: number;
+  error_message: string | null;
+}
+
+export interface InferenceResult {
+  job_id: string;
+  inference_id: string;
+  model_id: string;
+  model_name: string | null;
+  worker_id: string;
+  runtime_id: string;
+  status: InferenceStatus;
+  prompt_hash: string;
+  output: string | null;
+  output_hash: string | null;
+  tokens_generated: number;
+  generation_time_seconds: number;
+  tokens_per_second: number;
+  model_version: string | null;
+  device: string | null;
+  gpu_name: string | null;
+  framework: string | null;
+  dtype: string | null;
+  created_at: number;
+  started_at: number | null;
+  completed_at: number | null;
+  error: string | null;
+}
+
+export interface RuntimeHealth {
+  status: string;
+  runtimes: number;
+  registry_models: number;
+  inference_jobs: number;
+  timestamp: number;
+}
+
 export async function getComputeStatus(): Promise<ComputeStatus> {
   const resp = await fetch(`${API_BASE}/api/v1/compute/status`);
   if (!resp.ok) throw new Error(`Compute status failed: ${resp.status}`);
@@ -180,5 +253,117 @@ export async function runBenchmark(params: {
     body: JSON.stringify(params),
   });
   if (!resp.ok) throw new Error(`Benchmark failed: ${resp.status}`);
+  return resp.json();
+}
+
+// ============================================================
+// Runtime API
+// ============================================================
+
+export async function getRuntimeHealth(): Promise<RuntimeHealth> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/health`);
+  if (!resp.ok) throw new Error(`Runtime health failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function listRuntimes(): Promise<{ runtimes: RuntimeInfo[]; count: number }> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/runtimes`);
+  if (!resp.ok) throw new Error(`List runtimes failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getRuntime(runtimeId: string): Promise<RuntimeInfo> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/runtimes/${runtimeId}`);
+  if (!resp.ok) throw new Error(`Get runtime failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function discoverRuntime(workerId: string): Promise<{
+  worker_id: string;
+  runtime_id: string;
+  status: RuntimeStatus;
+  gpu_name: string | null;
+  vram_mb: number | null;
+  cuda_version: string | null;
+  pytorch_version: string | null;
+  available_models: string[];
+  error: string | null;
+}> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/runtimes/discover`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ worker_id: workerId }),
+  });
+  if (!resp.ok) throw new Error(`Discover runtime failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function loadModel(params: {
+  model_id: string;
+  worker_id: string;
+  dtype?: string;
+}): Promise<{
+  worker_id: string;
+  runtime_id: string;
+  model_id: string;
+  status: ModelLoadStatus;
+  load_time_seconds: number | null;
+  model_memory_mb: number | null;
+  error: string | null;
+}> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/runtimes/load`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!resp.ok) throw new Error(`Load model failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function unloadModel(params: {
+  worker_id: string;
+  runtime_id: string;
+}): Promise<{
+  worker_id: string;
+  runtime_id: string;
+  model_id: string;
+  status: ModelLoadStatus;
+  error: string | null;
+}> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/runtimes/unload`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!resp.ok) throw new Error(`Unload model failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function runInference(params: {
+  model_id: string;
+  prompt: string;
+  max_new_tokens?: number;
+  temperature?: number;
+  top_p?: number;
+  timeout_seconds?: number;
+}): Promise<InferenceResult> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/inference`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!resp.ok) throw new Error(`Inference failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function listInferenceJobs(): Promise<{ jobs: InferenceResult[]; count: number }> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/inference`);
+  if (!resp.ok) throw new Error(`List inference jobs failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getRegistryModels(): Promise<ModelConfig[]> {
+  const resp = await fetch(`${API_BASE}/api/v1/runtime/registry/models`);
+  if (!resp.ok) throw new Error(`Get registry models failed: ${resp.status}`);
   return resp.json();
 }

@@ -85,6 +85,11 @@ class WorkloadType(str, Enum):
     VISION = "VISION"
     TRAINING = "TRAINING"
     BENCHMARK = "BENCHMARK"
+    RUNTIME_DISCOVER = "RUNTIME_DISCOVER"
+    RUNTIME_LOAD = "RUNTIME_LOAD"
+    RUNTIME_UNLOAD = "RUNTIME_UNLOAD"
+    RUNTIME_HEALTH = "RUNTIME_HEALTH"
+    RUNTIME_INFER = "RUNTIME_INFER"
     CUSTOM = "CUSTOM"
 
 
@@ -131,6 +136,11 @@ class AuditAction(str, Enum):
     JOB_CANCELLED = "JOB_CANCELLED"
     JOB_TIMEOUT = "JOB_TIMEOUT"
     BENCHMARK_COMPLETED = "BENCHMARK_COMPLETED"
+    RUNTIME_DISCOVERED = "RUNTIME_DISCOVERED"
+    RUNTIME_MODEL_LOADED = "RUNTIME_MODEL_LOADED"
+    RUNTIME_MODEL_UNLOADED = "RUNTIME_MODEL_UNLOADED"
+    RUNTIME_INFERENCE_COMPLETED = "RUNTIME_INFERENCE_COMPLETED"
+    RUNTIME_INFERENCE_FAILED = "RUNTIME_INFERENCE_FAILED"
 
 
 class BenchmarkStatus(str, Enum):
@@ -175,10 +185,12 @@ class ComputeCapabilities(BaseModel):
     vision: bool = False
     training: bool = False
     benchmark: bool = False
+    runtime: bool = False
     max_concurrency: int = 1
     gpu: GPUInfo | None = None
     framework: str | None = None
     python_version: str | None = None
+    pytorch_version: str | None = None
 
 
 # ============================================================

@@ -15,9 +15,13 @@ import {
   enableCompute,
   disableCompute,
   setComputeMode,
+  getRuntimeHealth,
+  listRuntimes,
   type ComputeStatus,
   type ComputeProviderInfo,
   type ComputeMode,
+  type RuntimeInfo,
+  type RuntimeHealth,
 } from '../services/compute';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -143,7 +147,96 @@ function ProviderCard({ provider }: { provider: ComputeProviderInfo }) {
           {caps.vision && <Tag label="VISION" />}
           {caps.training && <Tag label="TRAINING" />}
           {caps.benchmark && <Tag label="BENCHMARK" />}
+          {caps.runtime && <Tag label="RUNTIME" />}
         </div>
+      </div>
+    </GlassPanel>
+  );
+}
+
+function RuntimeCard({ runtime }: { runtime: RuntimeInfo }) {
+  const statusColor = runtime.status === 'READY' ? 'var(--aur-positive)' :
+                       runtime.status === 'ERROR' ? 'var(--aur-negative)' :
+                       runtime.status === 'BUSY' ? 'var(--aur-accent-2)' :
+                       'var(--aur-accent)';
+
+  return (
+    <GlassPanel>
+      <div style={{ padding: 14 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            <StatusDot status={runtime.status} />
+            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--aur-ink)' }}>
+              Runtime {runtime.runtime_id.slice(0, 12)}...
+            </span>
+          </div>
+          <span style={{
+            fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+            background: statusColor, color: '#000', textTransform: 'uppercase',
+          }}>
+            {runtime.status}
+          </span>
+        </div>
+
+        {/* Model info */}
+        {runtime.model && (
+          <div style={{
+            padding: '8px 10px', background: 'var(--aur-bg-elevated)', borderRadius: 6,
+            border: '1px solid var(--aur-border)', marginBottom: 6,
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--aur-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+              Loaded Model
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+              <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                Model: <span style={{ color: 'var(--aur-ink)', fontWeight: 600 }}>{runtime.model.model_name}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                Status: <span style={{ color: statusColor, fontWeight: 500 }}>{runtime.model_load_status}</span>
+              </div>
+              {runtime.gpu_name && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  GPU: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{runtime.gpu_name}</span>
+                </div>
+              )}
+              {runtime.vram_mb && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  VRAM: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{(runtime.vram_mb / 1024).toFixed(1)} GB</span>
+                </div>
+              )}
+              {runtime.framework && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Framework: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{runtime.framework}</span>
+                </div>
+              )}
+              {runtime.pytorch_version && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  PyTorch: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{runtime.pytorch_version}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Stats */}
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+          <div style={{ fontSize: 10, color: 'var(--aur-ink-dim)' }}>
+            Inferences: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{runtime.total_inferences}</span>
+          </div>
+          <div style={{ fontSize: 10, color: 'var(--aur-ink-dim)' }}>
+            Errors: <span style={{ color: runtime.total_errors > 0 ? 'var(--aur-negative)' : 'var(--aur-ink)', fontWeight: 500 }}>
+              {runtime.total_errors}
+            </span>
+          </div>
+        </div>
+
+        {/* Error message */}
+        {runtime.error_message && (
+          <div style={{ fontSize: 10, color: 'var(--aur-negative)', marginTop: 6, fontStyle: 'italic' }}>
+            {runtime.error_message}
+          </div>
+        )}
       </div>
     </GlassPanel>
   );
@@ -163,14 +256,22 @@ function Tag({ label }: { label: string }) {
 export const ComputePage: React.FC = () => {
   const { emit } = useEventBus();
   const [status, setStatus] = useState<ComputeStatus | null>(null);
+  const [runtimeHealth, setRuntimeHealth] = useState<RuntimeHealth | null>(null);
+  const [runtimes, setRuntimes] = useState<RuntimeInfo[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
 
   const fetchStatus = useCallback(async () => {
     try {
-      const s = await getComputeStatus();
+      const [s, rh, rt] = await Promise.all([
+        getComputeStatus(),
+        getRuntimeHealth().catch(() => null),
+        listRuntimes().catch(() => ({ runtimes: [], count: 0 })),
+      ]);
       setStatus(s);
+      setRuntimeHealth(rh);
+      setRuntimes(rt.runtimes);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to fetch compute status');
@@ -299,6 +400,41 @@ export const ComputePage: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* Runtime Status */}
+      <GlassPanel>
+        <div style={{ padding: 4 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--aur-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            Model Runtime
+          </div>
+          {runtimeHealth ? (
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
+              <StatusCell label="STATUS" value={runtimeHealth.status.toUpperCase()} status={runtimeHealth.status === 'ok' ? 'READY' : 'ERROR'} />
+              <StatusCell label="RUNTIMES" value={String(runtimeHealth.runtimes)} />
+              <StatusCell label="MODELS" value={String(runtimeHealth.registry_models)} />
+              <StatusCell label="INFERENCE JOBS" value={String(runtimeHealth.inference_jobs)} />
+            </div>
+          ) : (
+            <div style={{ fontSize: 12, color: 'var(--aur-ink-dim)', fontStyle: 'italic' }}>
+              Runtime not available
+            </div>
+          )}
+        </div>
+      </GlassPanel>
+
+      {/* Active Runtimes */}
+      {runtimes.length > 0 && (
+        <div>
+          <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--aur-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
+            Active Runtimes
+          </div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
+            {runtimes.map(rt => (
+              <RuntimeCard key={rt.runtime_id} runtime={rt} />
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Jobs summary */}
       <GlassPanel>
