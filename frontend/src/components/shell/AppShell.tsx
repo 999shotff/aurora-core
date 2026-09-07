@@ -5,6 +5,7 @@ import { AppTopBar } from './AppTopBar';
 
 const TITLES: Record<string, { title: string; subtitle: string }> = {
   '/': { title: 'Command Center', subtitle: 'System overview' },
+  '/terminal': { title: 'AURORA Terminal', subtitle: 'Unified intelligence workspace' },
   '/geo': { title: 'Geo Observatory', subtitle: 'Geospatial observation & change detection' },
   '/market': { title: 'Market Observatory', subtitle: 'Market data, indicators & structure' },
   '/intelligence': { title: 'Intelligence', subtitle: 'Question → evidence → analysis → conclusion' },

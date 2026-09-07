@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Radar, Globe2, LineChart, BrainCircuit, FlaskConical, Shield,
-  Share2, FileBarChart2, Settings as SettingsIcon, Activity, X, Search, Database, Brain, Cpu,
+  Share2, FileBarChart2, Settings as SettingsIcon, Activity, X, Search, Database, Brain, Cpu, Terminal,
 } from 'lucide-react';
 import { usePhysicsSheet } from '../../lib/usePhysicsSheet';
 
@@ -10,7 +10,10 @@ interface NavItem { to: string; label: string; icon: React.ReactNode; }
 interface NavGroup { title: string; items: NavItem[]; }
 
 const NAV_GROUPS: NavGroup[] = [
-  { title: 'Command', items: [{ to: '/', label: 'Command Center', icon: <Radar size={17} /> }] },
+  { title: 'Command', items: [
+    { to: '/', label: 'Command Center', icon: <Radar size={17} /> },
+    { to: '/terminal', label: 'Terminal', icon: <Terminal size={17} /> },
+  ] },
   {
     title: 'Observe', items: [
       { to: '/geo', label: 'Geo Observatory', icon: <Globe2 size={17} /> },

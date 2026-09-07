@@ -151,6 +151,11 @@ from aurora.compute.api import router as compute_router
 
 app.include_router(compute_router)
 
+# Unified Analysis: Mount analysis sub-application
+from aurora.analysis.api import router as analysis_router
+
+app.include_router(analysis_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),

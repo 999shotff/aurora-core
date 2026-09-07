@@ -21,6 +21,7 @@ const InvestigationCenter = lazy(() => import('./pages/InvestigationCenter').the
 const MemoryCenter = lazy(() => import('./pages/MemoryCenter').then(m => ({ default: m.MemoryCenter })));
 const SynthesisPage = lazy(() => import('./pages/SynthesisPage').then(m => ({ default: m.SynthesisPage })));
 const ComputePage = lazy(() => import('./pages/ComputePage').then(m => ({ default: m.ComputePage })));
+const TerminalPage = lazy(() => import('./pages/TerminalPage').then(m => ({ default: m.TerminalPage })));
 
 function App() {
   return (
@@ -45,6 +46,7 @@ function App() {
                   <Route path="/memory" element={<MemoryCenter />} />
                   <Route path="/synthesis" element={<SynthesisPage />} />
                   <Route path="/compute" element={<ComputePage />} />
+                  <Route path="/terminal" element={<TerminalPage />} />
                   <Route path="*" element={<CommandCenter />} />
                 </Route>
               </Routes>

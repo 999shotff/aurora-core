@@ -27,6 +27,7 @@ const EVENT_KIND_LABEL: Record<ProcessingEvent['kind'], string> = {
   evidence_indexed: 'Evidence',
   synthesis: 'Synthesis',
   compute: 'Compute',
+  analysis: 'Analysis',
 };
 
 export const CommandCenter: React.FC = () => {

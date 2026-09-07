@@ -100,7 +100,8 @@ export type ProcessingEventKind =
   | 'navigation'
   | 'evidence_indexed'
   | 'synthesis'
-  | 'compute';
+  | 'compute'
+  | 'analysis';
 
 export interface ProcessingEvent {
   id: string;
