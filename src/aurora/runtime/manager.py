@@ -422,6 +422,7 @@ class RuntimeManager:
         worker_id = worker.worker_id if hasattr(worker, 'worker_id') else str(worker)
         payload = {
             "model_id": model_config.model_id,
+            "source_model_id": model_config.source_model_id,
             "dtype": dtype or model_config.dtype,
         }
         job = self._compute.dispatch_job_to_worker(

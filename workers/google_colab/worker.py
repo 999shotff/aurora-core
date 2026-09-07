@@ -134,10 +134,12 @@ class RuntimeHandler:
             "loaded_model": self._model_name,
         }
 
-    def load_model(self, model_id: str, dtype: str | None = None) -> dict:
+    def load_model(self, model_id: str, dtype: str | None = None,
+                    source_model_id: str | None = None) -> dict:
         if self.is_model_loaded:
             return {"status": "ERROR", "error": f"Model already loaded: {self._model_name}"}
 
+        load_id = source_model_id or model_id
         try:
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
@@ -145,9 +147,9 @@ class RuntimeHandler:
             start = time.time()
             torch_dtype = getattr(torch, dtype, torch.float16) if dtype else torch.float16
 
-            tokenizer = AutoTokenizer.from_pretrained(model_id)
+            tokenizer = AutoTokenizer.from_pretrained(load_id)
             model = AutoModelForCausalLM.from_pretrained(
-                model_id,
+                load_id,
                 torch_dtype=torch_dtype,
                 device_map="auto",
             )
@@ -511,8 +513,9 @@ class AuroraColabWorker:
         if not self._runtime_handler:
             return {"status": "ERROR", "error": "Runtime not initialized"}
         model_id = payload.get("model_id", "")
+        source_model_id = payload.get("source_model_id")
         dtype = payload.get("dtype")
-        return {"provider": "colab", "workload": "RUNTIME_LOAD", **self._runtime_handler.load_model(model_id, dtype)}
+        return {"provider": "colab", "workload": "RUNTIME_LOAD", **self._runtime_handler.load_model(model_id, dtype, source_model_id)}
 
     def _handle_runtime_unload(self, payload: dict) -> dict:
         if not self._runtime_handler:

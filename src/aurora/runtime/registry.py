@@ -1,6 +1,10 @@
 """Model Registry — approved models for runtime execution.
 
 No weights stored. Only metadata. Models downloaded at runtime.
+
+Each model has two identifiers:
+  - model_id:       AURORA-internal short identifier (e.g. "smollm2-1.7b")
+  - source_model_id: Official HuggingFace repo ID passed to from_pretrained()
 """
 
 from __future__ import annotations
@@ -10,22 +14,40 @@ from aurora.runtime.schemas import ModelConfig, ModelRegistry, RuntimeCapability
 DEFAULT_REGISTRY = ModelRegistry(
     models=[
         ModelConfig(
-            model_id="llama-3.1-8b",
-            model_name="Meta Llama 3.1 8B Instruct",
+            model_id="smollm2-1.7b",
+            model_name="SmolLM2 1.7B Instruct",
+            source_model_id="HuggingFaceTB/SmolLM2-1.7B-Instruct",
+            framework="transformers",
+            dtype="float16",
+            device="cuda",
+            max_input_tokens=8192,
+            max_output_tokens=2048,
+            required_vram_gb=2.0,
+            capabilities=[RuntimeCapability.INFERENCE, RuntimeCapability.TEXT_GENERATION],
+            description="HuggingFace SmolLM2. Ultra-lightweight. For T4/low-VRAM.",
+            source="huggingface",
+            source_url="https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct",
+        ),
+        ModelConfig(
+            model_id="phi-3.5-mini",
+            model_name="Phi-3.5 Mini Instruct",
+            source_model_id="microsoft/Phi-3.5-mini-instruct",
             framework="transformers",
             dtype="float16",
             device="cuda",
             max_input_tokens=131072,
             max_output_tokens=4096,
-            required_vram_gb=8.0,
-            capabilities=[RuntimeCapability.INFERENCE, RuntimeCapability.TEXT_GENERATION],
-            description="Meta Llama 3.1 8B instruction-tuned model. Good general reasoning.",
+            required_vram_gb=4.0,
+            capabilities=[RuntimeCapability.INFERENCE, RuntimeCapability.TEXT_GENERATION,
+                          RuntimeCapability.SUMMARIZATION],
+            description="Microsoft Phi-3.5 Mini. Small, fast, strong reasoning.",
             source="huggingface",
-            source_url="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct",
+            source_url="https://huggingface.co/microsoft/Phi-3.5-mini-instruct",
         ),
         ModelConfig(
             model_id="mistral-7b",
             model_name="Mistral 7B Instruct v0.3",
+            source_model_id="mistralai/Mistral-7B-Instruct-v0.3",
             framework="transformers",
             dtype="float16",
             device="cuda",
@@ -40,6 +62,7 @@ DEFAULT_REGISTRY = ModelRegistry(
         ModelConfig(
             model_id="qwen2.5-7b",
             model_name="Qwen 2.5 7B Instruct",
+            source_model_id="Qwen/Qwen2.5-7B-Instruct",
             framework="transformers",
             dtype="float16",
             device="cuda",
@@ -53,33 +76,20 @@ DEFAULT_REGISTRY = ModelRegistry(
             source_url="https://huggingface.co/Qwen/Qwen2.5-7B-Instruct",
         ),
         ModelConfig(
-            model_id="phi-3.5-mini",
-            model_name="Phi-3.5 Mini Instruct",
+            model_id="llama-3.1-8b",
+            model_name="Meta Llama 3.1 8B Instruct",
+            source_model_id="meta-llama/Llama-3.1-8B-Instruct",
             framework="transformers",
             dtype="float16",
             device="cuda",
             max_input_tokens=131072,
             max_output_tokens=4096,
-            required_vram_gb=4.0,
-            capabilities=[RuntimeCapability.INFERENCE, RuntimeCapability.TEXT_GENERATION,
-                          RuntimeCapability.SUMMARIZATION],
-            description="Microsoft Phi-3.5 Mini. Small, fast, strong reasoning.",
-            source="huggingface",
-            source_url="https://huggingface.co/microsoft/Phi-3.5-mini-instruct",
-        ),
-        ModelConfig(
-            model_id="smollm2-1.7b",
-            model_name="SmolLM2 1.7B Instruct",
-            framework="transformers",
-            dtype="float16",
-            device="cuda",
-            max_input_tokens=8192,
-            max_output_tokens=2048,
-            required_vram_gb=2.0,
+            required_vram_gb=8.0,
             capabilities=[RuntimeCapability.INFERENCE, RuntimeCapability.TEXT_GENERATION],
-            description="HuggingFace SmolLM2. Ultra-lightweight. For T4/low-VRAM.",
+            description="Meta Llama 3.1 8B instruction-tuned model. Good general reasoning. GATED — requires HuggingFace auth.",
             source="huggingface",
-            source_url="https://huggingface.co/HuggingFaceTB/SmolLM2-1.7B-Instruct",
+            source_url="https://huggingface.co/meta-llama/Llama-3.1-8B-Instruct",
+            requires_auth=True,
         ),
     ],
     default_model_id="smollm2-1.7b",
@@ -95,6 +105,12 @@ def get_model_by_id(model_id: str) -> ModelConfig | None:
         if model.model_id == model_id:
             return model
     return None
+
+
+def get_source_model_id(model_id: str) -> str | None:
+    """Resolve AURORA model_id to the official HuggingFace repo ID."""
+    model = get_model_by_id(model_id)
+    return model.source_model_id if model else None
 
 
 def list_model_ids() -> list[str]:

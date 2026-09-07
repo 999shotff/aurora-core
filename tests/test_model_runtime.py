@@ -30,6 +30,7 @@ from aurora.runtime.schemas import (
 from aurora.runtime.registry import (
     get_default_registry,
     get_model_by_id,
+    get_source_model_id,
     list_model_ids,
     estimate_vram_needed,
     DEFAULT_REGISTRY,
@@ -48,8 +49,10 @@ from aurora.runtime.security import (
 
 class TestModelConfig:
     def test_create_minimal(self):
-        config = ModelConfig(model_id="test", model_name="Test Model")
+        config = ModelConfig(model_id="test", model_name="Test Model",
+                             source_model_id="org/test-model")
         assert config.model_id == "test"
+        assert config.source_model_id == "org/test-model"
         assert config.framework == "transformers"
         assert config.dtype == "float16"
         assert config.device == "cuda"
@@ -58,6 +61,7 @@ class TestModelConfig:
         config = ModelConfig(
             model_id="llama-3.1-8b",
             model_name="Llama 3.1 8B",
+            source_model_id="meta-llama/Llama-3.1-8B-Instruct",
             model_revision="main",
             framework="transformers",
             dtype="bfloat16",
@@ -69,33 +73,50 @@ class TestModelConfig:
             description="Test model",
             source="huggingface",
             source_url="https://huggingface.co/test",
+            requires_auth=True,
         )
         assert config.model_id == "llama-3.1-8b"
+        assert config.source_model_id == "meta-llama/Llama-3.1-8B-Instruct"
+        assert config.requires_auth is True
         assert config.max_input_tokens == 131072
         assert config.required_vram_gb == 8.0
         assert len(config.capabilities) == 2
 
     def test_empty_model_id_rejected(self):
         with pytest.raises(Exception):
-            ModelConfig(model_id="", model_name="Test")
+            ModelConfig(model_id="", model_name="Test", source_model_id="org/test")
+
+    def test_empty_source_model_id_rejected(self):
+        with pytest.raises(Exception):
+            ModelConfig(model_id="test", model_name="Test", source_model_id="")
 
     def test_long_model_id_rejected(self):
         with pytest.raises(Exception):
-            ModelConfig(model_id="x" * 200, model_name="Test")
+            ModelConfig(model_id="x" * 200, model_name="Test", source_model_id="org/test")
 
     def test_extra_fields_rejected(self):
         with pytest.raises(Exception):
-            ModelConfig(model_id="test", model_name="Test", extra_field="bad")
+            ModelConfig(model_id="test", model_name="Test", source_model_id="org/test",
+                        extra_field="bad")
+
+    def test_requires_auth_default_false(self):
+        config = ModelConfig(model_id="test", model_name="Test",
+                             source_model_id="org/test")
+        assert config.requires_auth is False
 
     def test_vram_bounds(self):
-        config = ModelConfig(model_id="test", model_name="Test", required_vram_gb=0.1)
+        config = ModelConfig(model_id="test", model_name="Test",
+                             source_model_id="org/test", required_vram_gb=0.1)
         assert config.required_vram_gb == 0.1
-        config2 = ModelConfig(model_id="test2", model_name="Test2", required_vram_gb=80.0)
+        config2 = ModelConfig(model_id="test2", model_name="Test2",
+                              source_model_id="org/test2", required_vram_gb=80.0)
         assert config2.required_vram_gb == 80.0
         with pytest.raises(Exception):
-            ModelConfig(model_id="test3", model_name="Test3", required_vram_gb=0.0)
+            ModelConfig(model_id="test3", model_name="Test3",
+                        source_model_id="org/test3", required_vram_gb=0.0)
         with pytest.raises(Exception):
-            ModelConfig(model_id="test4", model_name="Test4", required_vram_gb=100.0)
+            ModelConfig(model_id="test4", model_name="Test4",
+                        source_model_id="org/test4", required_vram_gb=100.0)
 
 
 class TestModelRegistry:
@@ -107,8 +128,10 @@ class TestModelRegistry:
     def test_create_with_models(self):
         reg = ModelRegistry(
             models=[
-                ModelConfig(model_id="m1", model_name="Model 1"),
-                ModelConfig(model_id="m2", model_name="Model 2"),
+                ModelConfig(model_id="m1", model_name="Model 1",
+                            source_model_id="org/m1"),
+                ModelConfig(model_id="m2", model_name="Model 2",
+                            source_model_id="org/m2"),
             ],
             default_model_id="m1",
         )
@@ -129,7 +152,8 @@ class TestRuntimeInfo:
         info = RuntimeInfo(
             runtime_id="rt-1",
             status=RuntimeStatus.READY,
-            model=ModelConfig(model_id="test", model_name="Test"),
+            model=ModelConfig(model_id="test", model_name="Test",
+                              source_model_id="org/test"),
             model_load_status=ModelLoadStatus.LOADED,
             worker_id="worker-1",
             provider_type="GOOGLE_COLAB",
@@ -294,6 +318,41 @@ class TestRegistry:
     def test_estimate_vram_unknown(self):
         vram = estimate_vram_needed("nonexistent")
         assert vram is None
+
+    def test_source_model_id_resolution(self):
+        assert get_source_model_id("smollm2-1.7b") == "HuggingFaceTB/SmolLM2-1.7B-Instruct"
+        assert get_source_model_id("phi-3.5-mini") == "microsoft/Phi-3.5-mini-instruct"
+        assert get_source_model_id("mistral-7b") == "mistralai/Mistral-7B-Instruct-v0.3"
+        assert get_source_model_id("qwen2.5-7b") == "Qwen/Qwen2.5-7B-Instruct"
+        assert get_source_model_id("llama-3.1-8b") == "meta-llama/Llama-3.1-8B-Instruct"
+
+    def test_source_model_id_not_found(self):
+        assert get_source_model_id("nonexistent") is None
+
+    def test_all_models_have_source_model_id(self):
+        reg = get_default_registry()
+        for model in reg.models:
+            assert model.source_model_id, f"{model.model_id} missing source_model_id"
+
+    def test_all_models_have_distinct_ids(self):
+        reg = get_default_registry()
+        internal_ids = [m.model_id for m in reg.models]
+        source_ids = [m.source_model_id for m in reg.models]
+        assert len(set(internal_ids)) == len(internal_ids)
+        assert len(set(source_ids)) == len(source_ids)
+        for iid, sid in zip(internal_ids, source_ids):
+            assert iid != sid, f"{iid} == {sid} — internal and source IDs must differ"
+
+    def test_llama_requires_auth(self):
+        model = get_model_by_id("llama-3.1-8b")
+        assert model is not None
+        assert model.requires_auth is True
+
+    def test_other_models_do_not_require_auth(self):
+        for mid in ["smollm2-1.7b", "phi-3.5-mini", "mistral-7b", "qwen2.5-7b"]:
+            model = get_model_by_id(mid)
+            assert model is not None
+            assert model.requires_auth is False, f"{mid} should not require auth"
 
 
 # ============================================================
@@ -625,10 +684,12 @@ class TestEdgeCases:
         assert result.error is None
 
     def test_model_config_defaults(self):
-        config = ModelConfig(model_id="test", model_name="Test")
+        config = ModelConfig(model_id="test", model_name="Test",
+                             source_model_id="org/test")
         assert config.model_revision is None
         assert config.source_url is None
         assert config.description == ""
+        assert config.requires_auth is False
         assert len(config.capabilities) == 1
         assert config.capabilities[0] == RuntimeCapability.INFERENCE
 

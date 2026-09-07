@@ -71,6 +71,8 @@ class ModelConfig(BaseModel):
 
     model_id: str = Field(..., min_length=1, max_length=128)
     model_name: str = Field(..., min_length=1, max_length=256)
+    source_model_id: str = Field(..., min_length=1, max_length=256,
+                                 description="HuggingFace repo ID used to load weights via from_pretrained()")
     model_revision: str | None = None
     framework: str = "transformers"
     dtype: str = "float16"
@@ -82,6 +84,7 @@ class ModelConfig(BaseModel):
     description: str = ""
     source: str = "huggingface"
     source_url: str | None = None
+    requires_auth: bool = False
 
 
 class ModelRegistry(BaseModel):
