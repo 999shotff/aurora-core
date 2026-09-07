@@ -1,7 +1,7 @@
 /**
  * Compute Fabric Page — provider-agnostic GPU/CPU orchestration control.
  *
- * Shows compute status, provider cards, mode selector, enable/disable.
+ * Shows compute status, provider cards, GPU info, worker status, benchmark.
  * Honest states: NO fake GPU data. If not connected, shows NOT CONNECTED.
  *
  * NO_DEPLOYMENT_SIGNAL. No predictions. No trading signals.
@@ -24,6 +24,10 @@ const STATUS_COLORS: Record<string, string> = {
   READY: 'var(--aur-positive)',
   DISABLED: 'var(--aur-ink-dim)',
   NOT_CONFIGURED: 'var(--aur-ink-faint)',
+  CONFIGURED: 'var(--aur-accent)',
+  CONNECTING: 'var(--aur-accent)',
+  AUTHENTICATING: 'var(--aur-accent)',
+  HEALTH_CHECK: 'var(--aur-accent)',
   DISCONNECTED: 'var(--aur-warning)',
   DEGRADED: 'var(--aur-warning)',
   BUSY: 'var(--aur-accent-2)',
@@ -47,9 +51,13 @@ function StatusDot({ status }: { status: string }) {
 
 function ProviderCard({ provider }: { provider: ComputeProviderInfo }) {
   const caps = provider.capabilities;
+  const gpu = caps.gpu;
+  const workerStatus = provider.worker_status || 'OFFLINE';
+
   return (
     <GlassPanel>
       <div style={{ padding: 14 }}>
+        {/* Header */}
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <StatusDot status={provider.status} />
@@ -64,52 +72,91 @@ function ProviderCard({ provider }: { provider: ComputeProviderInfo }) {
           </span>
         </div>
 
+        {/* Status messages */}
         {provider.status === 'NOT_CONFIGURED' && (
-          <div style={{ fontSize: 11, color: 'var(--aur-ink-faint)', fontStyle: 'italic' }}>
+          <div style={{ fontSize: 11, color: 'var(--aur-ink-faint)', fontStyle: 'italic', marginBottom: 6 }}>
             Not configured — add environment variables to enable
           </div>
         )}
         {provider.status === 'DISCONNECTED' && (
-          <div style={{ fontSize: 11, color: 'var(--aur-warning)', fontStyle: 'italic' }}>
+          <div style={{ fontSize: 11, color: 'var(--aur-warning)', fontStyle: 'italic', marginBottom: 6 }}>
             No worker connected — start a worker to enable GPU compute
           </div>
         )}
 
-        {caps.gpu_name && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, marginTop: 8 }}>
-            <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
-              GPU: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{caps.gpu_name}</span>
-            </div>
-            <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
-              VRAM: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{caps.vram_gb} GB</span>
-            </div>
-            {caps.cuda_version && (
-              <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
-                CUDA: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{caps.cuda_version}</span>
-              </div>
-            )}
-            {caps.framework && (
-              <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
-                Framework: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{caps.framework}</span>
-              </div>
-            )}
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
-          {caps.inference && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'var(--aur-glass-strong)', color: 'var(--aur-accent)' }}>INFERENCE</span>}
-          {caps.embeddings && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'var(--aur-glass-strong)', color: 'var(--aur-accent)' }}>EMBEDDINGS</span>}
-          {caps.vision && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'var(--aur-glass-strong)', color: 'var(--aur-accent)' }}>VISION</span>}
-          {caps.training && <span style={{ fontSize: 9, padding: '2px 6px', borderRadius: 4, background: 'var(--aur-glass-strong)', color: 'var(--aur-accent)' }}>TRAINING</span>}
-        </div>
-
+        {/* Worker info */}
         {provider.worker_id && (
-          <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', marginTop: 6 }}>
-            Worker: {provider.worker_id}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4, marginBottom: 6 }}>
+            <div style={{ fontSize: 10, color: 'var(--aur-ink-dim)' }}>
+              Worker: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{provider.worker_id.slice(0, 16)}...</span>
+            </div>
+            <div style={{ fontSize: 10, color: 'var(--aur-ink-dim)' }}>
+              Status: <span style={{ color: STATUS_COLORS[workerStatus] || 'var(--aur-ink)', fontWeight: 500 }}>{workerStatus}</span>
+            </div>
           </div>
         )}
+
+        {/* GPU info — only from real runtime */}
+        {gpu && gpu.name !== 'UNKNOWN' && (
+          <div style={{
+            padding: '8px 10px', background: 'var(--aur-bg-elevated)', borderRadius: 6,
+            border: '1px solid var(--aur-border)', marginBottom: 6,
+          }}>
+            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--aur-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+              GPU
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+              <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                Model: <span style={{ color: 'var(--aur-ink)', fontWeight: 600 }}>{gpu.name}</span>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                VRAM: <span style={{ color: 'var(--aur-ink)', fontWeight: 600 }}>{(gpu.vram_mb / 1024).toFixed(1)} GB</span>
+              </div>
+              {gpu.cuda_version && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  CUDA: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{gpu.cuda_version}</span>
+                </div>
+              )}
+              {gpu.compute_capability && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Compute: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{gpu.compute_capability}</span>
+                </div>
+              )}
+              {gpu.driver_version && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Driver: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{gpu.driver_version}</span>
+                </div>
+              )}
+              {gpu.runtime_info && (
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Runtime: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{gpu.runtime_info}</span>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Capabilities */}
+        <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
+          {caps.inference && <Tag label="INFERENCE" />}
+          {caps.embeddings && <Tag label="EMBEDDINGS" />}
+          {caps.vision && <Tag label="VISION" />}
+          {caps.training && <Tag label="TRAINING" />}
+          {caps.benchmark && <Tag label="BENCHMARK" />}
+        </div>
       </div>
     </GlassPanel>
+  );
+}
+
+function Tag({ label }: { label: string }) {
+  return (
+    <span style={{
+      fontSize: 9, padding: '2px 6px', borderRadius: 4,
+      background: 'var(--aur-glass-strong)', color: 'var(--aur-accent)',
+    }}>
+      {label}
+    </span>
   );
 }
 
@@ -207,28 +254,10 @@ export const ComputePage: React.FC = () => {
 
           {/* Status grid */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
-            <div style={{ padding: '10px 14px', background: 'var(--aur-bg-elevated)', borderRadius: 8 }}>
-              <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', textTransform: 'uppercase', marginBottom: 4 }}>BACKEND</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <StatusDot status={status?.enabled ? 'READY' : 'DISABLED'} />
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{status?.enabled ? 'ONLINE' : 'OFFLINE'}</span>
-              </div>
-            </div>
-            <div style={{ padding: '10px 14px', background: 'var(--aur-bg-elevated)', borderRadius: 8 }}>
-              <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', textTransform: 'uppercase', marginBottom: 4 }}>GPU</div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                <StatusDot status={status?.enabled ? 'READY' : 'DISABLED'} />
-                <span style={{ fontSize: 13, fontWeight: 600 }}>{status?.enabled ? 'ON' : 'OFF'}</span>
-              </div>
-            </div>
-            <div style={{ padding: '10px 14px', background: 'var(--aur-bg-elevated)', borderRadius: 8 }}>
-              <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', textTransform: 'uppercase', marginBottom: 4 }}>MODE</div>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{status?.mode || 'CPU'}</span>
-            </div>
-            <div style={{ padding: '10px 14px', background: 'var(--aur-bg-elevated)', borderRadius: 8 }}>
-              <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', textTransform: 'uppercase', marginBottom: 4 }}>ACTIVE</div>
-              <span style={{ fontSize: 13, fontWeight: 600 }}>{status?.active_provider || 'CPU'}</span>
-            </div>
+            <StatusCell label="BACKEND" value={status?.enabled ? 'ONLINE' : 'OFFLINE'} status={status?.enabled ? 'READY' : 'DISABLED'} />
+            <StatusCell label="GPU" value={status?.gpu_enabled ? 'ON' : 'OFF'} status={status?.gpu_enabled ? 'READY' : 'DISABLED'} />
+            <StatusCell label="MODE" value={status?.mode || 'CPU'} />
+            <StatusCell label="ACTIVE" value={status?.active_provider || 'CPU'} />
           </div>
         </div>
       </GlassPanel>
@@ -264,7 +293,7 @@ export const ComputePage: React.FC = () => {
         <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--aur-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 10 }}>
           Providers
         </div>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 12 }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>
           {status?.providers.map(p => (
             <ProviderCard key={p.provider_id} provider={p} />
           ))}
@@ -290,5 +319,17 @@ export const ComputePage: React.FC = () => {
     </div>
   );
 };
+
+function StatusCell({ label, value, status }: { label: string; value: string; status?: string }) {
+  return (
+    <div style={{ padding: '10px 14px', background: 'var(--aur-bg-elevated)', borderRadius: 8 }}>
+      <div style={{ fontSize: 10, color: 'var(--aur-ink-faint)', textTransform: 'uppercase', marginBottom: 4 }}>{label}</div>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        {status && <StatusDot status={status} />}
+        <span style={{ fontSize: 13, fontWeight: 600 }}>{value}</span>
+      </div>
+    </div>
+  );
+}
 
 export default ComputePage;

@@ -1,287 +1,205 @@
-# Compute Fabric — Provider-Agnostic GPU/CPU Orchestration
+# Compute Fabric v2 — Real GPU Worker Activation
 
-**Status:** v0.1.0  
-**Type:** Infrastructure layer  
-**Depends On:** None (LLM-1 through LLM-5 work without GPU)
-
----
-
-## What It Is
-
-Provider-agnostic compute orchestration that routes workloads between:
-
-1. **CPU** — always available, safe fallback
-2. **Google Colab** — user-controlled GPU worker via authenticated protocol
-3. **Lightning AI** — configured via environment variables
-
-**It does NOT:**
-- Make predictions
-- Generate trading signals
-- Execute arbitrary code
-- Connect to brokers
-- Fabricate GPU availability
-
----
+AURORA CORE's Compute Fabric orchestrates GPU/CPU compute through user-controlled workers.
 
 ## Architecture
 
 ```
-                    AURORA CORE
-                         |
-                  ComputeManager
-                         |
-              +----------+----------+
-              |          |          |
-             CPU       Colab     Lightning
-           Provider    Worker      Worker
-              |          |          |
-              +----------+----------+
-                         |
-                  Model / Job API
-                         |
-              LLM / ML / Vision tasks
+                         AURORA CORE (Control Plane)
+                              |
+                       ComputeManager
+                              |
+               +--------------+--------------+
+               |              |              |
+              CPU          Colab Worker   Lightning Worker
+               |              |              |
+               |           GPU Runtime     GPU Runtime
+               |              |              |
+               +--------------+--------------+
+                              |
+                         Job Protocol
+                              |
+                    AI / ML Workloads
 ```
 
----
+AURORA backend is the **control plane**. GPU workers are **execution planes**.
+AURORA does NOT move itself onto GPU workers.
 
-## Providers
+## Worker Protocol v2
 
-### CPU Provider
+Versioned, structured, validated messages:
 
-Always available. Safe fallback when GPU is OFF or unavailable.
+| Message | Direction | Purpose |
+|---------|-----------|---------|
+| `REGISTER` | Worker → Backend | Worker registers with capabilities |
+| `REGISTER_ACK` | Backend → Worker | Accept/reject with heartbeat config |
+| `HEARTBEAT` | Worker → Backend | Periodic liveness + runtime state |
+| `HEARTBEAT_ACK` | Backend → Worker | Ack + pending jobs + shutdown signal |
+| `CAPABILITIES` | Worker → Backend | Updated capabilities (GPU info) |
+| `HEALTH` | Worker → Backend | Detailed health check |
+| `JOB_SUBMIT` | Backend → Worker | Submit structured workload |
+| `JOB_ACCEPTED` | Worker → Backend | Worker accepts job |
+| `JOB_STARTED` | Worker → Backend | Job execution started |
+| `JOB_PROGRESS` | Worker → Backend | Progress update (0.0–1.0) |
+| `JOB_LOG` | Worker → Backend | Log line for job |
+| `JOB_RESULT` | Worker → Backend | Job completed with result |
+| `JOB_FAILED` | Worker → Backend | Job failed with error |
+| `JOB_CANCEL` | Backend → Worker | Cancel running job |
+| `SHUTDOWN` | Worker → Backend | Graceful shutdown |
 
-- Status: `READY` when enabled
-- Capabilities: inference, embeddings (no GPU)
-- No external dependencies
+## Provider Status Model
 
-### Google Colab Provider
-
-User-controlled Colab worker connects via authenticated worker protocol.
-
-**Status depends on real worker connection:**
-- `NOT_CONFIGURED` — `AURORA_COLAB_WORKER_ENABLED` not set
-- `DISCONNECTED` — no worker registered or heartbeat expired
-- `READY` — worker connected and healthy
-
-**Do NOT assume Colab is a permanent server.** Sessions expire.
-
-### Lightning AI Provider
-
-Configured via environment variables.
-
-**Status depends on real configuration and worker:**
-- `NOT_CONFIGURED` — missing `AURORA_LIGHTNING_ENDPOINT` or `AURORA_LIGHTNING_API_KEY`
-- `DISCONNECTED` — no worker connected
-- `READY` — worker connected and healthy
-
----
-
-## Environment Variables
-
-```bash
-# Compute mode: AUTO, CPU, GOOGLE_COLAB, LIGHTNING
-AURORA_COMPUTE_MODE=CPU
-
-# Worker authentication token
-AURORA_COMPUTE_WORKER_TOKEN=
-
-# Google Colab
-AURORA_COLAB_WORKER_ENABLED=false
-
-# Lightning AI
-AURORA_LIGHTNING_ENDPOINT=
-AURORA_LIGHTNING_API_KEY=
-AURORA_LIGHTNING_WORKSPACE=
-AURORA_LIGHTNING_PROJECT=
+### Provider
+```
+NOT_CONFIGURED → CONFIGURED → CONNECTING → AUTHENTICATING → HEALTH_CHECK → READY → BUSY → DISCONNECTED
+                                                                                     ↘ DEGRADED
+                                                                                     ↘ ERROR
 ```
 
----
-
-## Worker Protocol
-
-Workers register with AURORA and send periodic heartbeats.
-
-### Registration
-
+### Worker
 ```
-POST /api/v1/compute/workers/register
-
-{
-  "worker_id": "colab-gpu-1",
-  "provider_id": "colab",
-  "provider_type": "GOOGLE_COLAB",
-  "capabilities": {
-    "inference": true,
-    "gpu_name": "T4",
-    "vram_gb": 15.0,
-    "cuda_version": "12.1",
-    "framework": "pytorch"
-  },
-  "api_token": "your-secret-token"
-}
+OFFLINE → CONNECTING → AUTHENTICATING → READY → BUSY → DISCONNECTED
+                                                      ↘ UNHEALTHY
+                                                      ↘ SHUTTING_DOWN
 ```
 
-### Heartbeat
+## GPU Discovery
 
-```
-POST /api/v1/compute/workers/{worker_id}/heartbeat
+GPU information is **only from real runtime reporting**:
+- PyTorch `torch.cuda` API
+- `nvidia-smi` fallback
+- Worker-reported capabilities
 
-{
-  "worker_id": "colab-gpu-1",
-  "status": "READY",
-  "capabilities": { ... },
-  "api_token": "your-secret-token"
-}
-```
+If unavailable: `UNKNOWN`. **Never fabricated.**
 
-### Shutdown
+## Security
 
-```
-POST /api/v1/compute/workers/{worker_id}/shutdown
+- Worker token: `AURORA_COMPUTE_WORKER_TOKEN` env var (backend-side only)
+- Frontend never receives worker authentication secrets
+- No arbitrary Python/shell execution accepted
+- Only structured workloads: INFERENCE, EMBEDDINGS, VISION, TRAINING, BENCHMARK
+- Payload validation blocks: shell, exec, eval, subprocess, os.system, compile
+- Provider credentials stored server-side only
 
-{
-  "worker_id": "colab-gpu-1",
-  "reason": "session ending",
-  "api_token": "your-secret-token"
-}
-```
+## Setup
 
----
+### Google Colab
+
+1. Set `AURORA_COMPUTE_WORKER_TOKEN` on your backend
+2. Set `AURORA_COLAB_WORKER_ENABLED=true` on your backend
+3. Open `workers/google_colab/aurora_colab_worker.ipynb` in Colab
+4. Start GPU runtime (Runtime → Change runtime type → GPU)
+5. Configure `AURORA_BACKEND_URL` and `AURORA_WORKER_TOKEN` in notebook
+6. Run all cells
+
+Worker connects → reports GPU → AURORA marks READY → accepts jobs.
+
+### Lightning AI
+
+1. Set `AURORA_COMPUTE_WORKER_TOKEN` on your backend
+2. Set `AURORA_LIGHTNING_ENDPOINT` and `AURORA_LIGHTNING_API_KEY` on backend
+3. On your Lightning instance: `pip install requests torch`
+4. Set `AURORA_BACKEND_URL` and `AURORA_WORKER_TOKEN` env vars
+5. Run `python workers/lightning/worker.py`
 
 ## Compute Modes
 
 | Mode | Behavior |
 |------|----------|
-| `AUTO` | Use GPU if available, fall back to CPU |
-| `CPU` | Always use CPU |
-| `GOOGLE_COLAB` | Require Colab, fail if unavailable |
-| `LIGHTNING` | Require Lightning, fail if unavailable |
+| `AUTO` | Use healthy GPU worker if available, else CPU |
+| `CPU` | CPU only |
+| `GOOGLE_COLAB` | Colab only (NOT_AVAILABLE if disconnected) |
+| `LIGHTNING` | Lightning only (NOT_AVAILABLE if disconnected) |
 
-**AUTO mode** falls back to CPU safely.  
-**Explicit modes** return error if provider unavailable — no silent switching.
-
----
+Explicit modes do NOT silently fall back to CPU.
 
 ## API Endpoints
 
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/api/v1/compute/health` | Health check |
-| GET | `/api/v1/compute/status` | Full compute status |
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/v1/compute/status` | Overall compute status |
 | GET | `/api/v1/compute/providers` | All provider info |
-| POST | `/api/v1/compute/enable` | Enable GPU compute |
-| POST | `/api/v1/compute/disable` | Disable GPU compute |
-| POST | `/api/v1/compute/mode` | Change compute mode |
-| POST | `/api/v1/compute/jobs` | Submit a job |
-| GET | `/api/v1/compute/jobs/{id}` | Get job status |
-| POST | `/api/v1/compute/jobs/{id}/cancel` | Cancel a job |
+| GET | `/api/v1/compute/health` | Health check |
+| POST | `/api/v1/compute/enable` | Enable compute |
+| POST | `/api/v1/compute/disable` | Disable compute |
+| POST | `/api/v1/compute/mode` | Change mode |
+| POST | `/api/v1/compute/jobs` | Submit job |
+| GET | `/api/v1/compute/jobs` | List jobs |
+| GET | `/api/v1/compute/jobs/{id}` | Get job |
+| POST | `/api/v1/compute/jobs/{id}/cancel` | Cancel job |
+| POST | `/api/v1/compute/benchmark` | Run GPU benchmark |
 | POST | `/api/v1/compute/workers/register` | Register worker |
 | POST | `/api/v1/compute/workers/{id}/heartbeat` | Worker heartbeat |
-| POST | `/api/v1/compute/workers/{id}/shutdown` | Worker shutdown |
+| POST | `/api/v1/compute/workers/{id}/capabilities` | Update capabilities |
+| GET | `/api/v1/compute/workers/{id}/health` | Worker health |
+| POST | `/api/v1/compute/workers/{id}/shutdown` | Shutdown worker |
 | GET | `/api/v1/compute/audit` | Audit log |
 
----
+## Benchmark
 
-## Frontend
+The GPU benchmark runs matrix multiplication to verify real GPU connectivity:
 
-Route: `/compute`
+- **Input**: matrix_size, iterations
+- **Output**: execution_time, GFLOPS, result_checksum, GPU info
+- **Checksum**: SHA-256 of parameters (reproducible)
+- **Status**: PASSED/FAILED/NOT_RUN
 
-- Compute status dashboard
-- Enable/disable GPU toggle
-- Mode selector (AUTO/CPU/Lightning/Colab)
-- Provider cards with honest status
-- GPU info only shown when real worker connected
-- Active jobs counter
+## Model Runtime Abstraction
 
----
+Future runtimes (not yet implemented):
+- llama.cpp
+- vLLM
+- Transformers
+- Ollama
 
-## Security
-
-- Worker authentication via `AURORA_COMPUTE_WORKER_TOKEN`
-- API keys never exposed to frontend
-- No arbitrary code execution
-- No shell command execution
-- No secret leakage
-- Bounded retry/backoff
-- Worker must authenticate on every request
-
----
-
-## Routing Logic
-
-```
-AUTO:
-  if GPU provider READY → use GPU
-  else → use CPU
-
-CPU:
-  always CPU
-
-GOOGLE_COLAB:
-  if Colab READY → use Colab
-  else → error
-
-LIGHTNING:
-  if Lightning READY → use Lightning
-  else → error
-```
-
----
-
-## Failure Behavior
-
-| Scenario | Result |
-|----------|--------|
-| GPU OFF | CPU only |
-| Colab not configured | NOT_CONFIGURED |
-| Colab worker disconnected | DISCONNECTED → CPU fallback (AUTO) |
-| Lightning not configured | NOT_CONFIGURED |
-| Lightning unavailable | DISCONNECTED → CPU fallback (AUTO) |
-| Worker crashes | Heartbeat timeout → DISCONNECTED |
-| Backend restart | Providers reset to initial state |
-| Job timeout | Job marked TIMEOUT |
-
----
-
-## LLM-1 → LLM-5 Integration
-
-The LLM layer asks for capability/workload, not specific hardware:
-
+Interface:
 ```python
-# "execute inference" — not "run on CUDA device 0"
-ComputeJobRequest(workload_type=WorkloadType.INFERENCE)
+class ModelRuntime:
+    def load(model_id: str) -> None
+    def unload() -> None
+    def health() -> RuntimeStatus
+    def capabilities() -> ComputeCapabilities
+    def infer(input: dict) -> dict
 ```
 
-The Compute Fabric decides where that workload goes.
+## MatrAIx Integration
 
----
+When MatrAIx runtime is connected to a GPU worker:
+```
+AURORA → PersonaSimulationProvider → ComputeManager → Colab/Lightning → MatrAIx → result
+```
 
-## How to Connect a Colab Worker
+Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 
-1. Set `AURORA_COLAB_WORKER_ENABLED=true` on the backend
-2. Set `AURORA_COMPUTE_WORKER_TOKEN=your-secret`
-3. In a Colab notebook, run an AURORA worker service
-4. Worker registers via `POST /api/v1/compute/workers/register`
-5. Worker sends heartbeats every 60 seconds
-6. Compute Fabric marks Colab as READY
+## Environment Variables
 
----
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `AURORA_COMPUTE_WORKER_TOKEN` | (empty) | Worker authentication token |
+| `AURORA_COLAB_WORKER_ENABLED` | `false` | Enable Colab provider |
+| `AURORA_LIGHTNING_ENDPOINT` | (empty) | Lightning API endpoint |
+| `AURORA_LIGHTNING_API_KEY` | (empty) | Lightning API key |
+| `AURORA_LIGHTNING_WORKSPACE` | (empty) | Lightning workspace |
+| `AURORA_LIGHTNING_PROJECT` | (empty) | Lightning project |
 
-## Known Limitations
+## Testing
 
-- Colab sessions are not permanent
-- Lightning requires real API key and endpoint
-- No GPU provider connected by default
-- Worker protocol is v1.0 — may evolve
-- Job execution is currently stub (CPU completes immediately)
-
----
-
-## NO_DEPLOYMENT_SIGNAL
-
-This module routes computational workloads. It does NOT:
-- Make predictions
-- Generate trading signals
-- Make trading decisions
-- Connect to brokers or exchanges
-- Use real money
+103 tests covering:
+- Worker Protocol v2 schemas
+- Enhanced provider status model
+- Worker lifecycle (register, heartbeat, disconnect, reconnect)
+- Provider registry
+- Colab provider (config, register, heartbeat, timeout, GPU, health)
+- Lightning provider (config, register, heartbeat, status, health)
+- CPU fallback
+- AUTO routing
+- Explicit provider routing
+- GPU capability discovery
+- Job lifecycle (submit, progress, complete, fail)
+- Job cancellation
+- Benchmark execution
+- Model runtime contract
+- Worker authentication (valid, invalid, protocol mismatch)
+- Audit events
+- Security (payload validation, no arbitrary exec, no secret leakage)
+- Stale worker detection

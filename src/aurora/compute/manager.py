@@ -1,12 +1,14 @@
-"""Compute Fabric — ComputeManager.
+"""Compute Fabric — ComputeManager (v2).
 
-Central orchestration: providers, routing, jobs, workers, health.
+Central orchestration: providers, routing, jobs, workers, health, benchmark.
+Worker Protocol v2: versioned registration, heartbeat acks, capability updates.
 
 NO_DEPLOYMENT_SIGNAL.
 """
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import os
 import time
@@ -27,6 +29,9 @@ from aurora.compute.provider import ComputeProvider
 from aurora.compute.registry import ProviderRegistry
 from aurora.compute.schemas import (
     AuditAction,
+    BenchmarkRequest,
+    BenchmarkResult,
+    BenchmarkStatus,
     ComputeCapabilities,
     ComputeJob,
     ComputeJobRequest,
@@ -35,24 +40,31 @@ from aurora.compute.schemas import (
     ComputeProviderStatus,
     ComputeProviderType,
     ComputeStatus,
+    GPUInfo,
+    JobProgress,
     JobStatus,
+    PROTOCOL_VERSION,
     WorkerHeartbeat,
+    WorkerHeartbeatAck,
     WorkerRegistration,
+    WorkerRegistrationAck,
     WorkerShutdown,
+    WorkerStatus,
 )
 
 logger = logging.getLogger(__name__)
 
 
 class ComputeManager:
-    """Central compute orchestration.
+    """Central compute orchestration (v2).
 
     Responsibilities:
     - Track provider status
     - Select providers based on mode
     - Route jobs
     - Handle fallback
-    - Worker management
+    - Worker management with v2 protocol
+    - Benchmark execution
     - Audit logging
     """
 
@@ -64,6 +76,7 @@ class ComputeManager:
         self._jobs: dict[str, ComputeJob] = {}
         self._workers: dict[str, str] = {}  # worker_id -> provider_id
         self._worker_tokens: dict[str, str] = {}  # worker_id -> api_token
+        self._worker_last_seen: dict[str, float] = {}
         self._total_completed = 0
         self._worker_api_token = os.environ.get("AURORA_COMPUTE_WORKER_TOKEN", "")
 
@@ -111,13 +124,19 @@ class ComputeManager:
     def get_status(self) -> ComputeStatus:
         providers = [p.get_info() for p in self._registry.list_providers()]
         active = self._select_active_provider()
+        gpu_enabled = any(
+            p.status == ComputeProviderStatus.READY
+            for p in providers
+            if p.provider_type != ComputeProviderType.CPU
+        )
         return ComputeStatus(
             enabled=self._enabled,
             mode=self._mode,
             active_provider=active.provider_id if active else None,
             providers=providers,
-            active_jobs=sum(1 for j in self._jobs.values() if j.status == JobStatus.RUNNING),
+            active_jobs=sum(1 for j in self._jobs.values() if j.status in (JobStatus.QUEUED, JobStatus.ASSIGNED, JobStatus.RUNNING)),
             total_jobs_completed=self._total_completed,
+            gpu_enabled=gpu_enabled,
             last_updated=time.time(),
         )
 
@@ -129,11 +148,12 @@ class ComputeManager:
         return {
             "status": "healthy" if self._enabled else "degraded",
             "service": "compute-fabric",
-            "version": "0.1.0",
+            "version": "0.2.0",
+            "protocol_version": PROTOCOL_VERSION,
             "enabled": self._enabled,
             "mode": self._mode.value,
             "providers": providers,
-            "active_jobs": sum(1 for j in self._jobs.values() if j.status == JobStatus.RUNNING),
+            "active_jobs": sum(1 for j in self._jobs.values() if j.status in (JobStatus.QUEUED, JobStatus.ASSIGNED, JobStatus.RUNNING)),
             "total_completed": self._total_completed,
         }
 
@@ -164,6 +184,7 @@ class ComputeManager:
             job_id=job.job_id,
             detail=f"Workload: {request.workload_type.value}",
         )
+        self._emit_event("compute", f"Job submitted: {job.job_id}", "live")
         return job
 
     def get_job(self, job_id: str) -> ComputeJob:
@@ -171,19 +192,238 @@ class ComputeManager:
             raise JobNotFound(f"Job {job_id} not found")
         return self._jobs[job_id]
 
+    def list_jobs(self, limit: int = 50) -> list[ComputeJob]:
+        jobs = sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
+        return jobs[:limit]
+
     def cancel_job(self, job_id: str) -> bool:
         job = self.get_job(job_id)
         provider = self._registry.get(job.provider_id)
         if provider:
             ok = provider.cancel_job(job_id)
             if ok:
+                job.status = JobStatus.CANCELLED
+                job.completed_at = time.time()
                 self._audit.record(
                     AuditAction.JOB_CANCELLED,
                     provider_id=job.provider_id,
                     job_id=job_id,
                 )
+                self._emit_event("compute", f"Job cancelled: {job_id}", "live")
             return ok
         return False
+
+    def update_job_progress(self, job_id: str, progress: JobProgress) -> ComputeJob:
+        job = self.get_job(job_id)
+        job.progress = progress.progress
+        if progress.message:
+            job.logs.append(progress.message)
+        return job
+
+    def complete_job(self, job_id: str, result: dict, result_hash: str | None = None) -> ComputeJob:
+        job = self.get_job(job_id)
+        job.status = JobStatus.COMPLETED
+        job.completed_at = time.time()
+        job.progress = 1.0
+        job.result = result
+        job.result_hash = result_hash
+        self._total_completed += 1
+        self._audit.record(
+            AuditAction.JOB_COMPLETED,
+            provider_id=job.provider_id,
+            job_id=job_id,
+        )
+        self._emit_event("compute", f"Job completed: {job_id}", "live")
+        return job
+
+    def fail_job(self, job_id: str, error: str) -> ComputeJob:
+        job = self.get_job(job_id)
+        job.status = JobStatus.FAILED
+        job.completed_at = time.time()
+        job.error = error
+        self._audit.record(
+            AuditAction.JOB_FAILED,
+            provider_id=job.provider_id,
+            job_id=job_id,
+            detail=error,
+            success=False,
+        )
+        self._emit_event("compute", f"Job failed: {job_id}", "live")
+        return job
+
+    # ── Benchmark ──────────────────────────────────────────────
+
+    def run_benchmark(self, request: BenchmarkRequest) -> BenchmarkResult:
+        provider = self._registry.get_by_type(request.provider_type)
+        if provider is None:
+            return BenchmarkResult(
+                worker_id="none",
+                provider_type=request.provider_type,
+                gpu=GPUInfo(),
+                matrix_size=request.matrix_size,
+                iterations=request.iterations,
+                execution_time_seconds=0.0,
+                result_checksum="",
+                status=BenchmarkStatus.FAILED,
+                error=f"Provider {request.provider_type.value} not available",
+            )
+
+        result = provider.run_benchmark(request.matrix_size, request.iterations)
+        self._audit.record(
+            AuditAction.BENCHMARK_COMPLETED,
+            provider_id=provider.provider_id,
+            detail=f"Status: {result.status.value}, GFLOPS: {result.gflops}",
+            success=result.status == BenchmarkStatus.PASSED,
+        )
+        self._emit_event("compute", f"Benchmark: {result.status.value}", "live")
+        return result
+
+    # ── Worker Management (v2) ────────────────────────────────
+
+    def register_worker(self, registration: WorkerRegistration) -> WorkerRegistrationAck:
+        if self._worker_api_token and registration.api_token != self._worker_api_token:
+            self._audit.record(
+                AuditAction.WORKER_AUTH_FAILED,
+                worker_id=registration.worker_id,
+                detail="Invalid token",
+                success=False,
+            )
+            raise UnauthorizedWorker("Invalid worker API token")
+
+        if registration.protocol_version != PROTOCOL_VERSION:
+            return WorkerRegistrationAck(
+                accepted=False,
+                worker_id=registration.worker_id,
+                error=f"Protocol mismatch: expected {PROTOCOL_VERSION}, got {registration.protocol_version}",
+            )
+
+        provider = self._registry.get_by_type(registration.provider_type)
+        if provider is None:
+            raise InvalidProvider(f"Provider {registration.provider_type.value} not available")
+
+        if hasattr(provider, "register_worker"):
+            provider.register_worker(registration.worker_id, registration.capabilities)
+
+        self._workers[registration.worker_id] = provider.provider_id
+        self._worker_tokens[registration.worker_id] = registration.api_token
+        self._worker_last_seen[registration.worker_id] = time.time()
+
+        self._audit.record(
+            AuditAction.WORKER_REGISTERED,
+            provider_id=provider.provider_id,
+            worker_id=registration.worker_id,
+            detail=f"Protocol: {registration.protocol_version}, GPU: {registration.capabilities.gpu.name if registration.capabilities.gpu else 'none'}",
+        )
+        self._emit_event("compute", f"Worker registered: {registration.worker_id}", "live")
+
+        if registration.capabilities.gpu:
+            self._audit.record(
+                AuditAction.GPU_DETECTED,
+                provider_id=provider.provider_id,
+                worker_id=registration.worker_id,
+                detail=f"GPU: {registration.capabilities.gpu.name}, VRAM: {registration.capabilities.gpu.vram_mb}MB",
+            )
+
+        return WorkerRegistrationAck(
+            accepted=True,
+            worker_id=registration.worker_id,
+            protocol_version=PROTOCOL_VERSION,
+        )
+
+    def worker_heartbeat(self, worker_id: str, heartbeat: WorkerHeartbeat) -> WorkerHeartbeatAck:
+        if self._worker_api_token and heartbeat.api_token != self._worker_api_token:
+            raise UnauthorizedWorker("Invalid worker API token")
+
+        if worker_id not in self._workers:
+            raise WorkerNotFound(f"Worker {worker_id} not registered")
+
+        provider_id = self._workers[worker_id]
+        provider = self._registry.get(provider_id)
+        if provider and hasattr(provider, "heartbeat"):
+            provider.heartbeat(worker_id, heartbeat.capabilities, heartbeat.status)
+
+        self._worker_last_seen[worker_id] = time.time()
+
+        self._audit.record(
+            AuditAction.WORKER_HEARTBEAT,
+            provider_id=provider_id,
+            worker_id=worker_id,
+        )
+
+        pending = sum(
+            1 for j in self._jobs.values()
+            if j.worker_id == worker_id and j.status in (JobStatus.QUEUED, JobStatus.ASSIGNED)
+        )
+
+        return WorkerHeartbeatAck(
+            accepted=True,
+            pending_jobs=pending,
+            shutdown_requested=False,
+        )
+
+    def update_worker_capabilities(self, worker_id: str, capabilities: ComputeCapabilities) -> bool:
+        if worker_id not in self._workers:
+            return False
+        provider_id = self._workers[worker_id]
+        provider = self._registry.get(provider_id)
+        if provider and hasattr(provider, "update_capabilities"):
+            provider.update_capabilities(capabilities)
+            return True
+        return False
+
+    def get_worker_health(self, worker_id: str) -> WorkerHealth | None:
+        if worker_id not in self._workers:
+            return None
+        provider_id = self._workers[worker_id]
+        provider = self._registry.get(provider_id)
+        if provider and hasattr(provider, "get_worker_health"):
+            return provider.get_worker_health()
+        return None
+
+    def shutdown_worker(self, shutdown: WorkerShutdown) -> bool:
+        if self._worker_api_token and shutdown.api_token != self._worker_api_token:
+            raise UnauthorizedWorker("Invalid worker API token")
+
+        if shutdown.worker_id not in self._workers:
+            return False
+
+        provider_id = self._workers.pop(shutdown.worker_id)
+        self._worker_tokens.pop(shutdown.worker_id, None)
+        self._worker_last_seen.pop(shutdown.worker_id, None)
+        provider = self._registry.get(provider_id)
+        if provider and hasattr(provider, "disconnect_worker"):
+            provider.disconnect_worker()
+
+        self._audit.record(
+            AuditAction.WORKER_SHUTDOWN,
+            provider_id=provider_id,
+            worker_id=shutdown.worker_id,
+            detail=f"Reason: {shutdown.reason}",
+        )
+        self._emit_event("compute", f"Worker shutdown: {shutdown.worker_id}", "live")
+        return True
+
+    def check_stale_workers(self) -> list[str]:
+        stale = []
+        for worker_id, last_seen in list(self._worker_last_seen.items()):
+            if (time.time() - last_seen) > 150:
+                stale.append(worker_id)
+                provider_id = self._workers.pop(worker_id, None)
+                self._worker_tokens.pop(worker_id, None)
+                self._worker_last_seen.pop(worker_id, None)
+                if provider_id:
+                    provider = self._registry.get(provider_id)
+                    if provider and hasattr(provider, "disconnect_worker"):
+                        provider.disconnect_worker()
+                    self._audit.record(
+                        AuditAction.WORKER_DISCONNECTED,
+                        provider_id=provider_id,
+                        worker_id=worker_id,
+                        detail="Heartbeat timeout",
+                    )
+        return stale
+
+    # ── Routing ────────────────────────────────────────────────
 
     def _resolve_provider(self, request: ComputeJobRequest) -> ComputeProvider | None:
         if request.provider_preference:
@@ -212,77 +452,7 @@ class ComputeManager:
 
         return self._registry.get("cpu")
 
-    # ── Worker Management ────────────────────────────────────────
-
-    def register_worker(self, registration: WorkerRegistration) -> ComputeProviderInfo:
-        if self._worker_api_token and registration.api_token != self._worker_api_token:
-            raise UnauthorizedWorker("Invalid worker API token")
-
-        provider = self._registry.get_by_type(registration.provider_type)
-        if provider is None:
-            raise InvalidProvider(f"Provider {registration.provider_type.value} not available")
-
-        if hasattr(provider, "register_worker"):
-            provider.register_worker(registration.worker_id, registration.capabilities)
-        self._workers[registration.worker_id] = provider.provider_id
-        self._worker_tokens[registration.worker_id] = registration.api_token
-
-        self._audit.record(
-            AuditAction.WORKER_REGISTERED,
-            provider_id=provider.provider_id,
-            worker_id=registration.worker_id,
-            detail=f"Capabilities: inference={registration.capabilities.inference}",
-        )
-        self._emit_event("compute", f"Worker registered: {registration.worker_id}", "live")
-        return provider.get_info()
-
-    def worker_heartbeat(self, worker_id: str, heartbeat: WorkerHeartbeat) -> ComputeProviderInfo:
-        if self._worker_api_token and heartbeat.api_token != self._worker_api_token:
-            raise UnauthorizedWorker("Invalid worker API token")
-
-        if worker_id not in self._workers:
-            raise WorkerNotFound(f"Worker {worker_id} not registered")
-
-        provider_id = self._workers[worker_id]
-        provider = self._registry.get(provider_id)
-        if provider and hasattr(provider, "heartbeat"):
-            provider.heartbeat(worker_id, heartbeat.capabilities)
-
-        self._audit.record(
-            AuditAction.WORKER_HEARTBEAT,
-            provider_id=provider_id,
-            worker_id=worker_id,
-        )
-        return provider.get_info() if provider else ComputeProviderInfo(
-            provider_id=provider_id,
-            provider_type=ComputeProviderType.CPU,
-            name="Unknown",
-            status=ComputeProviderStatus.UNKNOWN,
-        )
-
-    def shutdown_worker(self, shutdown: WorkerShutdown) -> bool:
-        if self._worker_api_token and shutdown.api_token != self._worker_api_token:
-            raise UnauthorizedWorker("Invalid worker API token")
-
-        if shutdown.worker_id not in self._workers:
-            return False
-
-        provider_id = self._workers.pop(shutdown.worker_id)
-        self._worker_tokens.pop(shutdown.worker_id, None)
-        provider = self._registry.get(provider_id)
-        if provider and hasattr(provider, "disconnect_worker"):
-            provider.disconnect_worker()
-
-        self._audit.record(
-            AuditAction.WORKER_DISCONNECTED,
-            provider_id=provider_id,
-            worker_id=shutdown.worker_id,
-            detail=f"Reason: {shutdown.reason}",
-        )
-        self._emit_event("compute", f"Worker disconnected: {shutdown.worker_id}", "live")
-        return True
-
-    # ── Events ───────────────────────────────────────────────────
+    # ── Events ─────────────────────────────────────────────────
 
     def _emit_event(self, kind: str, label: str, origin: str) -> None:
         try:
@@ -296,7 +466,7 @@ class ComputeManager:
         except Exception:
             pass
 
-    # ── Audit ────────────────────────────────────────────────────
+    # ── Audit ──────────────────────────────────────────────────
 
     def get_audit_log(self, limit: int = 50) -> list:
         return self._audit.get_entries(limit)

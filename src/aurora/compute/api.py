@@ -1,4 +1,4 @@
-"""Compute Fabric — REST API endpoints.
+"""Compute Fabric — REST API endpoints (v2).
 
 GET  /api/v1/compute/status
 GET  /api/v1/compute/providers
@@ -7,10 +7,14 @@ POST /api/v1/compute/enable
 POST /api/v1/compute/disable
 POST /api/v1/compute/mode
 POST /api/v1/compute/jobs
+GET  /api/v1/compute/jobs
 GET  /api/v1/compute/jobs/{job_id}
 POST /api/v1/compute/jobs/{job_id}/cancel
+POST /api/v1/compute/benchmark
 POST /api/v1/compute/workers/register
 POST /api/v1/compute/workers/{worker_id}/heartbeat
+POST /api/v1/compute/workers/{worker_id}/capabilities
+GET  /api/v1/compute/workers/{worker_id}/health
 POST /api/v1/compute/workers/{worker_id}/shutdown
 GET  /api/v1/compute/audit
 
@@ -22,7 +26,6 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
 
 from aurora.compute.errors import (
     ComputeError,
@@ -33,9 +36,12 @@ from aurora.compute.errors import (
 )
 from aurora.compute.manager import ComputeManager
 from aurora.compute.schemas import (
+    BenchmarkRequest,
+    ComputeCapabilities,
     ComputeJobRequest,
     ComputeMode,
     ModeChangeRequest,
+    WorkerCapabilities,
     WorkerHeartbeat,
     WorkerRegistration,
     WorkerShutdown,
@@ -114,6 +120,13 @@ async def submit_job(req: ComputeJobRequest) -> dict:
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.get("/api/v1/compute/jobs")
+async def list_jobs(limit: int = 50) -> dict:
+    manager = _get_manager()
+    jobs = manager.list_jobs(limit)
+    return {"jobs": [j.model_dump() for j in jobs], "total": len(jobs)}
+
+
 @router.get("/api/v1/compute/jobs/{job_id}")
 async def get_job(job_id: str) -> dict:
     manager = _get_manager()
@@ -133,14 +146,23 @@ async def cancel_job(job_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(e))
 
 
+# ── Benchmark ────────────────────────────────────────────────────
+
+@router.post("/api/v1/compute/benchmark")
+async def run_benchmark(req: BenchmarkRequest) -> dict:
+    manager = _get_manager()
+    result = manager.run_benchmark(req)
+    return result.model_dump()
+
+
 # ── Workers ──────────────────────────────────────────────────────
 
 @router.post("/api/v1/compute/workers/register")
 async def register_worker(req: WorkerRegistration) -> dict:
     manager = _get_manager()
     try:
-        info = manager.register_worker(req)
-        return info.model_dump()
+        ack = manager.register_worker(req)
+        return ack.model_dump()
     except UnauthorizedWorker as e:
         raise HTTPException(status_code=401, detail=str(e))
     except ComputeError as e:
@@ -151,12 +173,30 @@ async def register_worker(req: WorkerRegistration) -> dict:
 async def worker_heartbeat(worker_id: str, req: WorkerHeartbeat) -> dict:
     manager = _get_manager()
     try:
-        info = manager.worker_heartbeat(worker_id, req)
-        return info.model_dump()
+        ack = manager.worker_heartbeat(worker_id, req)
+        return ack.model_dump()
     except UnauthorizedWorker as e:
         raise HTTPException(status_code=401, detail=str(e))
     except WorkerNotFound as e:
         raise HTTPException(status_code=404, detail=str(e))
+
+
+@router.post("/api/v1/compute/workers/{worker_id}/capabilities")
+async def update_worker_capabilities(worker_id: str, req: WorkerCapabilities) -> dict:
+    manager = _get_manager()
+    ok = manager.update_worker_capabilities(worker_id, req.capabilities)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    return {"updated": True, "worker_id": worker_id}
+
+
+@router.get("/api/v1/compute/workers/{worker_id}/health")
+async def get_worker_health(worker_id: str) -> dict:
+    manager = _get_manager()
+    health = manager.get_worker_health(worker_id)
+    if health is None:
+        raise HTTPException(status_code=404, detail="Worker not found")
+    return health.model_dump()
 
 
 @router.post("/api/v1/compute/workers/{worker_id}/shutdown")
