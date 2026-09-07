@@ -14,6 +14,21 @@ from aurora.runtime.schemas import ModelConfig, ModelRegistry, RuntimeCapability
 DEFAULT_REGISTRY = ModelRegistry(
     models=[
         ModelConfig(
+            model_id="qwen2.5-0.5b-instruct",
+            model_name="Qwen2.5 0.5B Instruct",
+            source_model_id="Qwen/Qwen2.5-0.5B-Instruct",
+            framework="transformers",
+            dtype="float16",
+            device="cuda",
+            max_input_tokens=32768,
+            max_output_tokens=2048,
+            required_vram_gb=1.5,
+            capabilities=[RuntimeCapability.INFERENCE, RuntimeCapability.TEXT_GENERATION],
+            description="Qwen2.5 0.5B instruction-tuned. Ultra-lightweight. First live GPU test model.",
+            source="huggingface",
+            source_url="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct",
+        ),
+        ModelConfig(
             model_id="smollm2-1.7b",
             model_name="SmolLM2 1.7B Instruct",
             source_model_id="HuggingFaceTB/SmolLM2-1.7B-Instruct",
@@ -92,7 +107,7 @@ DEFAULT_REGISTRY = ModelRegistry(
             requires_auth=True,
         ),
     ],
-    default_model_id="smollm2-1.7b",
+    default_model_id="qwen2.5-0.5b-instruct",
 )
 
 

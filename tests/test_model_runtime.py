@@ -320,6 +320,7 @@ class TestRegistry:
         assert vram is None
 
     def test_source_model_id_resolution(self):
+        assert get_source_model_id("qwen2.5-0.5b-instruct") == "Qwen/Qwen2.5-0.5B-Instruct"
         assert get_source_model_id("smollm2-1.7b") == "HuggingFaceTB/SmolLM2-1.7B-Instruct"
         assert get_source_model_id("phi-3.5-mini") == "microsoft/Phi-3.5-mini-instruct"
         assert get_source_model_id("mistral-7b") == "mistralai/Mistral-7B-Instruct-v0.3"
@@ -695,7 +696,8 @@ class TestWorkerRuntimeHandler:
 
     def test_approved_models_whitelist_complete(self):
         from workers.google_colab.worker import APPROVED_SOURCE_MODELS, APPROVED_SOURCE_IDS
-        assert len(APPROVED_SOURCE_MODELS) == 5
+        assert len(APPROVED_SOURCE_MODELS) == 6
+        assert "Qwen/Qwen2.5-0.5B-Instruct" in APPROVED_SOURCE_IDS
         assert "HuggingFaceTB/SmolLM2-1.7B-Instruct" in APPROVED_SOURCE_IDS
         assert "microsoft/Phi-3.5-mini-instruct" in APPROVED_SOURCE_IDS
         assert "mistralai/Mistral-7B-Instruct-v0.3" in APPROVED_SOURCE_IDS
@@ -839,3 +841,85 @@ class TestEdgeCases:
     def test_unload_request(self):
         req = RuntimeUnloadRequest(worker_id="w1", runtime_id="rt-1")
         assert req.worker_id == "w1"
+
+
+# ============================================================
+# Qwen2.5-0.5B Live Test Model — Source ID Resolution
+# ============================================================
+
+
+class TestQwenSourceResolution:
+    def test_qwen_resolves_to_verified_source(self):
+        model = get_model_by_id("qwen2.5-0.5b-instruct")
+        assert model is not None
+        assert model.source_model_id == "Qwen/Qwen2.5-0.5B-Instruct"
+        assert model.model_id == "qwen2.5-0.5b-instruct"
+
+    def test_tokenizer_receives_source_model_id(self):
+        from workers.google_colab.worker import RuntimeHandler
+        from unittest.mock import patch, MagicMock
+
+        handler = RuntimeHandler({"name": "Tesla T4", "vram_mb": 15360.0})
+
+        mock_tokenizer = MagicMock()
+        mock_model_inst = MagicMock()
+        mock_model_inst.device = "cuda:0"
+
+        mock_transformers = MagicMock()
+        mock_transformers.AutoTokenizer.from_pretrained.return_value = mock_tokenizer
+        mock_transformers.AutoModelForCausalLM.from_pretrained.return_value = mock_model_inst
+
+        with patch.dict("sys.modules", {"transformers": mock_transformers, "torch": MagicMock()}):
+            handler.load_model("qwen2.5-0.5b-instruct", dtype="float16")
+
+        mock_transformers.AutoTokenizer.from_pretrained.assert_called_once_with(
+            "Qwen/Qwen2.5-0.5B-Instruct"
+        )
+
+    def test_model_loader_receives_source_model_id(self):
+        from workers.google_colab.worker import RuntimeHandler
+        from unittest.mock import patch, MagicMock
+
+        handler = RuntimeHandler({"name": "Tesla T4", "vram_mb": 15360.0})
+
+        mock_tokenizer = MagicMock()
+        mock_model_inst = MagicMock()
+        mock_model_inst.device = "cuda:0"
+
+        mock_torch = MagicMock()
+        mock_torch.float16 = "float16"
+        mock_transformers = MagicMock()
+        mock_transformers.AutoTokenizer.from_pretrained.return_value = mock_tokenizer
+        mock_transformers.AutoModelForCausalLM.from_pretrained.return_value = mock_model_inst
+
+        with patch.dict("sys.modules", {"transformers": mock_transformers, "torch": mock_torch}):
+            handler.load_model("qwen2.5-0.5b-instruct", dtype="float16")
+
+        mock_transformers.AutoModelForCausalLM.from_pretrained.assert_called_once_with(
+            "Qwen/Qwen2.5-0.5B-Instruct",
+            torch_dtype=mock_torch.float16,
+            device_map="auto",
+        )
+
+    def test_arbitrary_model_id_rejected(self):
+        from workers.google_colab.worker import RuntimeHandler
+        handler = RuntimeHandler({"name": "Tesla T4", "vram_mb": 15360.0})
+        result = handler.load_model("definitely-not-a-real-model")
+        assert result["status"] == "ERROR"
+        assert "not in approved registry" in result["error"]
+
+    def test_arbitrary_url_rejected(self):
+        from workers.google_colab.worker import RuntimeHandler
+        handler = RuntimeHandler({"name": "Tesla T4", "vram_mb": 15360.0})
+        result = handler.load_model(
+            "qwen2.5-0.5b-instruct",
+            source_model_id="https://huggingface.co/Qwen/Qwen2.5-0.5B-Instruct",
+        )
+        assert result["status"] == "ERROR"
+        assert "not in approved whitelist" in result["error"]
+
+    def test_provenance_records_both_ids(self):
+        model = get_model_by_id("qwen2.5-0.5b-instruct")
+        assert model.model_id == "qwen2.5-0.5b-instruct"
+        assert model.source_model_id == "Qwen/Qwen2.5-0.5B-Instruct"
+        assert model.model_id != model.source_model_id

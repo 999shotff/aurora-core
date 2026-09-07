@@ -38,6 +38,7 @@ MAX_RECONNECT_ATTEMPTS = 20
 # Only these repositories may be loaded via from_pretrained().
 # Maps AURORA internal model_id -> HuggingFace repo ID.
 APPROVED_SOURCE_MODELS: dict[str, str] = {
+    "qwen2.5-0.5b-instruct": "Qwen/Qwen2.5-0.5B-Instruct",
     "smollm2-1.7b": "HuggingFaceTB/SmolLM2-1.7B-Instruct",
     "phi-3.5-mini": "microsoft/Phi-3.5-mini-instruct",
     "mistral-7b": "mistralai/Mistral-7B-Instruct-v0.3",
