@@ -26,6 +26,7 @@ const EVENT_KIND_LABEL: Record<ProcessingEvent['kind'], string> = {
   navigation: 'Navigation',
   evidence_indexed: 'Evidence',
   synthesis: 'Synthesis',
+  compute: 'Compute',
 };
 
 export const CommandCenter: React.FC = () => {

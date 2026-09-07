@@ -146,6 +146,11 @@ from aurora.ai.synthesis.api import router as synthesis_router
 
 app.include_router(synthesis_router)
 
+# Compute Fabric: Mount compute sub-application
+from aurora.compute.api import router as compute_router
+
+app.include_router(compute_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),

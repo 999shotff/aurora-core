@@ -17,6 +17,7 @@ const TITLES: Record<string, { title: string; subtitle: string }> = {
   '/investigations': { title: 'Investigations', subtitle: 'Bounded, auditable investigation engine' },
   '/memory': { title: 'Memory Center', subtitle: 'Cognitive memory search, retrieve & inspect' },
   '/synthesis': { title: 'Synthesis', subtitle: 'Evidence-grounded synthesis & decision intelligence' },
+  '/compute': { title: 'Compute', subtitle: 'Provider-agnostic GPU/CPU orchestration' },
 };
 
 export const AppShell: React.FC = () => {

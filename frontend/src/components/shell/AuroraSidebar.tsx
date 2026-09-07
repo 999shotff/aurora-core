@@ -2,7 +2,7 @@ import React, { useEffect } from 'react';
 import { NavLink } from 'react-router-dom';
 import {
   Radar, Globe2, LineChart, BrainCircuit, FlaskConical, Shield,
-  Share2, FileBarChart2, Settings as SettingsIcon, Activity, X, Search, Database, Brain,
+  Share2, FileBarChart2, Settings as SettingsIcon, Activity, X, Search, Database, Brain, Cpu,
 } from 'lucide-react';
 import { usePhysicsSheet } from '../../lib/usePhysicsSheet';
 
@@ -31,6 +31,7 @@ const NAV_GROUPS: NavGroup[] = [
   { title: 'Output', items: [{ to: '/reports', label: 'Reports', icon: <FileBarChart2 size={17} /> }] },
   { title: 'System', items: [
     { to: '/memory', label: 'Memory', icon: <Database size={17} /> },
+    { to: '/compute', label: 'Compute', icon: <Cpu size={17} /> },
     { to: '/settings', label: 'Settings', icon: <SettingsIcon size={17} /> },
   ] },
 ];
