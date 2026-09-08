@@ -483,10 +483,8 @@ def create_provider_registry() -> ProviderRegistry:
     model = os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini")
 
     if provider_name == "ollama":
-        from aurora.runtime.manager import RuntimeManager
-        from aurora.compute.manager import ComputeManager
-        cm = ComputeManager()
-        rm = RuntimeManager(cm)
+        from aurora.market.api import _ensure_runtime_manager
+        rm = _ensure_runtime_manager()
         provider = OllamaProvider(rm)
         registry.register(provider, default=True)
     elif provider_name != "stub" and api_key:
