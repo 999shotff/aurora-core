@@ -1712,10 +1712,10 @@ class TestOllamaGPUDetection:
         runtime = OllamaRuntime(mock_gpu)
 
         with patch("subprocess.run") as mock_run:
-            # nvidia-smi fails (no GPU processes)
+            # nvidia-smi fails (no GPU processes), ollama ps shows CPU-only (size_vram=0)
             mock_run.side_effect = [
                 MagicMock(returncode=1, stdout=""),  # nvidia-smi no processes
-                MagicMock(returncode=0, stdout='{"models": [{"processor": "cpu"}]}'),  # ollama ps
+                MagicMock(returncode=0, stdout='{"models": [{"size_vram": 0, "size": 400000000}]}'),
             ]
             status = runtime._detect_gpu_status()
             assert status == "CPU_ONLY"

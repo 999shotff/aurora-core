@@ -391,10 +391,11 @@ class OllamaRuntime:
                 ps_data = _json.loads(result.stdout)
                 models = ps_data.get("models", [])
                 for m in models:
-                    processor = m.get("processor", "")
-                    if "gpu" in processor.lower() or "cuda" in processor.lower():
+                    size_vram = m.get("size_vram", 0)
+                    size_total = m.get("size", 0)
+                    if size_vram > 0:
                         return "GPU_ACCELERATED"
-                    if "cpu" in processor.lower():
+                    if size_total > 0 and size_vram == 0:
                         return "CPU_ONLY"
         except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
             pass
