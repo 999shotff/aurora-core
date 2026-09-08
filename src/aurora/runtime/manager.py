@@ -68,8 +68,8 @@ class RuntimeManager:
     async def discover_runtime(
         self, request: RuntimeDiscoverRequest
     ) -> RuntimeDiscoverResult:
-        worker = self._compute.get_worker(request.worker_id)
-        if not worker:
+        health = self._compute.get_worker_health(request.worker_id)
+        if not health:
             return RuntimeDiscoverResult(
                 worker_id=request.worker_id,
                 runtime_id="",
@@ -77,36 +77,40 @@ class RuntimeManager:
                 error="Worker not registered",
             )
 
-        runtime_id = f"rt-{worker.worker_id[:8]}-{int(time.time())}"
+        worker_id = health.worker_id
+        gpu = health.gpu
+        gpu_name = gpu.name if gpu else "UNKNOWN"
+        vram_mb = gpu.vram_mb if gpu else 0.0
+        cuda_version = gpu.cuda_version if gpu else None
+
+        runtime_id = f"rt-{worker_id[:8]}-{int(time.time())}"
 
         available_models = [
             m.model_id for m in self._registry.models
-            if self._gpu_has_enough_vram(worker.vram_mb, m.required_vram_gb)
+            if self._gpu_has_enough_vram(vram_mb, m.required_vram_gb)
         ]
 
         runtime_info = RuntimeInfo(
             runtime_id=runtime_id,
             status=RuntimeStatus.READY,
-            worker_id=worker.worker_id,
-            provider_type=worker.provider_type.value
-            if hasattr(worker.provider_type, "value")
-            else str(worker.provider_type),
-            gpu_name=worker.gpu_name,
-            vram_mb=worker.vram_mb,
-            cuda_version=worker.cuda_version,
-            framework=worker.framework,
-            pytorch_version=worker.pytorch_version,
+            worker_id=worker_id,
+            provider_type="unknown",
+            gpu_name=gpu_name,
+            vram_mb=vram_mb,
+            cuda_version=cuda_version,
+            framework=None,
+            pytorch_version=None,
         )
         self._runtimes[runtime_id] = runtime_info
 
         return RuntimeDiscoverResult(
-            worker_id=worker.worker_id,
+            worker_id=worker_id,
             runtime_id=runtime_id,
             status=RuntimeStatus.READY,
-            gpu_name=worker.gpu_name,
-            vram_mb=worker.vram_mb,
-            cuda_version=worker.cuda_version,
-            pytorch_version=worker.pytorch_version,
+            gpu_name=gpu_name,
+            vram_mb=vram_mb,
+            cuda_version=cuda_version,
+            pytorch_version=None,
             available_models=available_models,
         )
 
@@ -125,8 +129,8 @@ class RuntimeManager:
                 error=f"Model '{request.model_id}' not in approved registry",
             )
 
-        worker = self._compute.get_worker(request.worker_id)
-        if not worker:
+        health = self._compute.get_worker_health(request.worker_id)
+        if not health:
             return RuntimeLoadResult(
                 worker_id=request.worker_id,
                 runtime_id="",
@@ -135,21 +139,27 @@ class RuntimeManager:
                 error="Worker not registered",
             )
 
-        if not self._gpu_has_enough_vram(worker.vram_mb, model_config.required_vram_gb):
+        worker_id = health.worker_id
+        gpu = health.gpu
+        gpu_name = gpu.name if gpu else "UNKNOWN"
+        vram_mb = gpu.vram_mb if gpu else 0.0
+        cuda_version = gpu.cuda_version if gpu else None
+
+        if not self._gpu_has_enough_vram(vram_mb, model_config.required_vram_gb):
             return RuntimeLoadResult(
                 worker_id=request.worker_id,
                 runtime_id="",
                 model_id=request.model_id,
                 status=ModelLoadStatus.ERROR,
                 error=(
-                    f"Insufficient VRAM: worker has {worker.vram_mb or 0:.0f}MB, "
+                    f"Insufficient VRAM: worker has {vram_mb or 0:.0f}MB, "
                     f"model needs {model_config.required_vram_gb * 1024:.0f}MB"
                 ),
             )
 
         existing_runtime = self._find_runtime_for_worker(request.worker_id)
         runtime_id = existing_runtime.runtime_id if existing_runtime else (
-            f"rt-{worker.worker_id[:8]}-{int(time.time())}"
+            f"rt-{worker_id[:8]}-{int(time.time())}"
         )
 
         if existing_runtime:
@@ -162,21 +172,19 @@ class RuntimeManager:
                 status=RuntimeStatus.LOADING,
                 model=model_config,
                 model_load_status=ModelLoadStatus.LOADING,
-                worker_id=worker.worker_id,
-                provider_type=worker.provider_type.value
-                if hasattr(worker.provider_type, "value")
-                else str(worker.provider_type),
-                gpu_name=worker.gpu_name,
-                vram_mb=worker.vram_mb,
-                cuda_version=worker.cuda_version,
-                framework=worker.framework,
-                pytorch_version=worker.pytorch_version,
+                worker_id=worker_id,
+                provider_type="unknown",
+                gpu_name=gpu_name,
+                vram_mb=vram_mb,
+                cuda_version=cuda_version,
+                framework=None,
+                pytorch_version=None,
             )
             self._runtimes[runtime_id] = runtime_info
 
         load_start = time.time()
         try:
-            await self._send_load_command(worker, model_config, request.dtype)
+            await self._send_load_command(worker_id, model_config, request.dtype)
         except Exception as exc:
             if runtime_id in self._runtimes:
                 rt = self._runtimes[runtime_id]
@@ -416,10 +424,9 @@ class RuntimeManager:
         return None
 
     async def _send_load_command(
-        self, worker: Any, model_config: Any, dtype: str | None
+        self, worker_id: str, model_config: Any, dtype: str | None
     ) -> None:
         """Dispatch RUNTIME_LOAD job to the connected worker via compute fabric."""
-        worker_id = worker.worker_id if hasattr(worker, 'worker_id') else str(worker)
         payload = {
             "model_id": model_config.model_id,
             "source_model_id": model_config.source_model_id,
