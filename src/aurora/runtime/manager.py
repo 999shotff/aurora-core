@@ -463,6 +463,13 @@ class RuntimeManager:
             "temperature": request.temperature,
             "top_p": request.top_p,
         }
+
+        model_config = get_model_by_id(request.model_id)
+        if model_config:
+            payload["runtime"] = getattr(model_config, "runtime", "transformers")
+            payload["runtime_model_id"] = getattr(model_config, "runtime_model_id", None)
+        else:
+            payload["runtime"] = "transformers"
         job = self._compute.dispatch_job_to_worker(
             worker_id, "RUNTIME_INFER", payload
         )
