@@ -423,12 +423,15 @@ class RuntimeManager:
         payload = {
             "model_id": model_config.model_id,
             "source_model_id": model_config.source_model_id,
+            "runtime": getattr(model_config, "runtime", "transformers"),
+            "runtime_model_id": getattr(model_config, "runtime_model_id", None),
             "dtype": dtype or model_config.dtype,
         }
         job = self._compute.dispatch_job_to_worker(
             worker_id, "RUNTIME_LOAD", payload
         )
-        logger.info("Dispatched RUNTIME_LOAD to %s: job %s", worker_id, job.job_id)
+        logger.info("Dispatched RUNTIME_LOAD to %s: job %s (runtime=%s)",
+                     worker_id, job.job_id, payload.get("runtime"))
 
     async def _send_unload_command(
         self, worker_id: str, runtime_id: str

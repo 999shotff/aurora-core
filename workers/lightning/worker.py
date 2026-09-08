@@ -50,6 +50,13 @@ APPROVED_SOURCE_MODELS: dict[str, str] = {
 
 APPROVED_SOURCE_IDS: set[str] = set(APPROVED_SOURCE_MODELS.values())
 
+OLLAMA_BASE_URL = "http://127.0.0.1:11434"
+
+APPROVED_OLLAMA_MODELS: dict[str, str] = {
+    "qwen2.5-0.5b-ollama": "qwen2.5:0.5b",
+}
+APPROVED_OLLAMA_IDS: set[str] = set(APPROVED_OLLAMA_MODELS.values())
+
 
 class GPUInfo:
     """Detect GPU information from the runtime."""
@@ -281,6 +288,181 @@ class RuntimeHandler:
             return {"status": "FAILED", "error": str(e)[:500]}
 
 
+class OllamaRuntime:
+    """Handles Ollama runtime operations on the worker side.
+
+    Communicates with a local Ollama instance via HTTP (localhost:11434).
+    """
+
+    def __init__(self, gpu_info: dict, base_url: str = OLLAMA_BASE_URL) -> None:
+        self._gpu_info = gpu_info
+        self._base_url = base_url.rstrip("/")
+        self._loaded_model: str | None = None
+        self._load_time: float | None = None
+        self._total_inferences = 0
+        self._total_errors = 0
+
+    @property
+    def is_model_loaded(self) -> bool:
+        return self._loaded_model is not None
+
+    @property
+    def loaded_model_id(self) -> str | None:
+        return self._loaded_model
+
+    def _ollama_get(self, path: str) -> dict | None:
+        try:
+            resp = requests.get(f"{self._base_url}{path}", timeout=10)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except requests.RequestException:
+            return None
+
+    def _ollama_post(self, path: str, data: dict | None = None) -> dict | None:
+        try:
+            resp = requests.post(f"{self._base_url}{path}", json=data or {}, timeout=120)
+            if resp.status_code == 200:
+                return resp.json()
+            return None
+        except requests.RequestException:
+            return None
+
+    def health(self) -> dict:
+        info = self._ollama_get("/api/tags")
+        if info is None:
+            return {"status": "ERROR", "error": "Ollama not reachable",
+                    "ollama_url": self._base_url}
+        models = [m.get("name", "") for m in info.get("models", [])]
+        return {
+            "status": "READY",
+            "ollama_url": self._base_url,
+            "available_models": models,
+            "loaded_model": self._loaded_model,
+        }
+
+    def discover(self) -> dict:
+        health = self.health()
+        return {
+            "status": health["status"],
+            "runtime": "ollama",
+            "ollama_url": self._base_url,
+            "gpu_name": self._gpu_info.get("name"),
+            "vram_mb": self._gpu_info.get("vram_mb"),
+            "model_status": "LOADED" if self.is_model_loaded else "NOT_LOADED",
+            "loaded_model": self._loaded_model,
+            "available_models": health.get("available_models", []),
+        }
+
+    def ensure_model(self, ollama_model_name: str) -> dict:
+        info = self._ollama_get("/api/tags")
+        if info is None:
+            return {"status": "ERROR", "error": "Ollama not reachable"}
+        available = [m.get("name", "") for m in info.get("models", [])]
+        if ollama_model_name in available:
+            return {"status": "READY", "model": ollama_model_name}
+        logger.info("Pulling Ollama model: %s", ollama_model_name)
+        pull_result = self._ollama_post("/api/pull", {"name": ollama_model_name})
+        if pull_result is None:
+            return {"status": "ERROR", "error": f"Failed to pull model: {ollama_model_name}"}
+        info2 = self._ollama_get("/api/tags")
+        if info2:
+            available2 = [m.get("name", "") for m in info2.get("models", [])]
+            if ollama_model_name in available2:
+                return {"status": "READY", "model": ollama_model_name}
+        return {"status": "ERROR", "error": f"Model pull completed but model not found: {ollama_model_name}"}
+
+    def load_model(self, model_id: str, ollama_model_name: str) -> dict:
+        if self.is_model_loaded:
+            return {"status": "ERROR", "error": f"Model already loaded: {self._loaded_model}"}
+        if model_id in APPROVED_OLLAMA_MODELS:
+            approved_name = APPROVED_OLLAMA_MODELS[model_id]
+        elif ollama_model_name and ollama_model_name in APPROVED_OLLAMA_IDS:
+            approved_name = ollama_model_name
+        else:
+            return {"status": "ERROR",
+                    "error": f"Model '{model_id}' not in approved Ollama registry. "
+                             f"Approved: {list(APPROVED_OLLAMA_MODELS.keys())}"}
+        if approved_name not in APPROVED_OLLAMA_IDS:
+            return {"status": "ERROR",
+                    "error": f"Ollama model '{approved_name}' not in approved whitelist. "
+                             f"Allowed: {sorted(APPROVED_OLLAMA_IDS)}"}
+        ensure_result = self.ensure_model(approved_name)
+        if ensure_result["status"] != "READY":
+            return ensure_result
+        start = time.time()
+        try:
+            warmup = self._ollama_post("/api/generate", {
+                "model": approved_name,
+                "prompt": "hi",
+                "options": {"num_predict": 1},
+                "stream": False,
+            })
+            if warmup is None:
+                return {"status": "ERROR", "error": "Ollama warm-up failed"}
+            self._loaded_model = approved_name
+            self._load_time = time.time() - start
+            gpu_info = {}
+            if "cuda" in str(warmup).lower() or self._gpu_info.get("name") != "UNKNOWN":
+                gpu_info["gpu_execution"] = "LIKELY"
+            else:
+                gpu_info["gpu_execution"] = "UNCONFIRMED"
+            return {
+                "status": "LOADED",
+                "model_id": model_id,
+                "ollama_model": approved_name,
+                "load_time_seconds": round(self._load_time, 2),
+                "gpu_execution": gpu_info.get("gpu_execution", "UNCONFIRMED"),
+            }
+        except Exception as e:
+            self._total_errors += 1
+            return {"status": "ERROR", "error": str(e)[:500]}
+
+    def unload_model(self) -> dict:
+        if not self.is_model_loaded:
+            return {"status": "NOT_LOADED"}
+        model_name = self._loaded_model
+        self._loaded_model = None
+        self._load_time = None
+        return {"status": "NOT_LOADED", "unloaded_model": model_name}
+
+    def infer(self, prompt: str, max_new_tokens: int = 256,
+              temperature: float = 0.7, top_p: float = 0.9) -> dict:
+        if not self.is_model_loaded:
+            return {"status": "ERROR", "error": "No model loaded"}
+        try:
+            start = time.time()
+            options = {
+                "num_predict": max_new_tokens,
+                "temperature": temperature,
+                "top_p": top_p,
+            }
+            result = self._ollama_post("/api/generate", {
+                "model": self._loaded_model,
+                "prompt": prompt,
+                "options": options,
+                "stream": False,
+            })
+            if result is None:
+                return {"status": "FAILED", "error": "Ollama inference failed"}
+            output = result.get("response", "")
+            gen_time = time.time() - start
+            tokens = result.get("eval_count", len(output.split()))
+            self._total_inferences += 1
+            return {
+                "status": "COMPLETED",
+                "output": output,
+                "tokens_generated": tokens,
+                "generation_time_seconds": round(gen_time, 3),
+                "tokens_per_second": round(tokens / gen_time, 1) if gen_time > 0 else 0,
+                "model": self._loaded_model,
+                "gpu_execution": "UNCONFIRMED",
+            }
+        except Exception as e:
+            self._total_errors += 1
+            return {"status": "FAILED", "error": str(e)[:500]}
+
+
 class AuroraLightningWorker:
     """AURORA GPU worker for Lightning AI.
 
@@ -308,6 +490,7 @@ class AuroraLightningWorker:
         self._session = requests.Session()
         self._session.headers.update({"Content-Type": "application/json"})
         self._runtime_handler: RuntimeHandler | None = None
+        self._ollama_runtime: OllamaRuntime | None = None
 
     @property
     def worker_id(self) -> str:
@@ -366,6 +549,7 @@ class AuroraLightningWorker:
     def connect(self) -> bool:
         self._detect_gpu()
         self._runtime_handler = RuntimeHandler(self._gpu_info)
+        self._ollama_runtime = OllamaRuntime(self._gpu_info)
 
         registration = {
             "worker_id": self.worker_id,
@@ -537,40 +721,73 @@ class AuroraLightningWorker:
             return {"provider": "lightning", "workload": workload_type, "message": "Processed on GPU"}
 
     def _handle_runtime_discover(self, payload: dict) -> dict:
-        if not self._runtime_handler:
-            return {"status": "ERROR", "error": "Runtime not initialized"}
-        return {"provider": "lightning", "workload": "RUNTIME_DISCOVER", **self._runtime_handler.discover()}
+        result = {"provider": "lightning", "workload": "RUNTIME_DISCOVER"}
+        if self._runtime_handler:
+            result.update(self._runtime_handler.discover())
+        if self._ollama_runtime:
+            ollama_health = self._ollama_runtime.health()
+            result["ollama_status"] = ollama_health.get("status", "ERROR")
+            result["ollama_models"] = ollama_health.get("available_models", [])
+        return result
 
     def _handle_runtime_load(self, payload: dict) -> dict:
-        if not self._runtime_handler:
-            return {"status": "ERROR", "error": "Runtime not initialized"}
+        runtime_type = payload.get("runtime", "transformers")
         model_id = payload.get("model_id", "")
-        source_model_id = payload.get("source_model_id")
-        dtype = payload.get("dtype")
-        return {"provider": "lightning", "workload": "RUNTIME_LOAD",
-                **self._runtime_handler.load_model(model_id, dtype, source_model_id)}
+
+        if runtime_type == "ollama":
+            if not self._ollama_runtime:
+                return {"status": "ERROR", "error": "Ollama runtime not initialized"}
+            ollama_model = payload.get("runtime_model_id") or payload.get("source_model_id", "")
+            return {"provider": "lightning", "workload": "RUNTIME_LOAD",
+                    **self._ollama_runtime.load_model(model_id, ollama_model)}
+        else:
+            if not self._runtime_handler:
+                return {"status": "ERROR", "error": "Runtime not initialized"}
+            source_model_id = payload.get("source_model_id")
+            dtype = payload.get("dtype")
+            return {"provider": "lightning", "workload": "RUNTIME_LOAD",
+                    **self._runtime_handler.load_model(model_id, dtype, source_model_id)}
 
     def _handle_runtime_unload(self, payload: dict) -> dict:
-        if not self._runtime_handler:
-            return {"status": "ERROR", "error": "Runtime not initialized"}
-        return {"provider": "lightning", "workload": "RUNTIME_UNLOAD",
-                **self._runtime_handler.unload_model()}
+        if self._ollama_runtime and self._ollama_runtime.is_model_loaded:
+            return {"provider": "lightning", "workload": "RUNTIME_UNLOAD",
+                    **self._ollama_runtime.unload_model()}
+        if self._runtime_handler and self._runtime_handler.is_model_loaded:
+            return {"provider": "lightning", "workload": "RUNTIME_UNLOAD",
+                    **self._runtime_handler.unload_model()}
+        return {"provider": "lightning", "workload": "RUNTIME_UNLOAD", "status": "NOT_LOADED"}
 
     def _handle_runtime_health(self, payload: dict) -> dict:
-        if not self._runtime_handler:
-            return {"status": "ERROR", "error": "Runtime not initialized"}
-        return {"provider": "lightning", "workload": "RUNTIME_HEALTH",
-                **self._runtime_handler.health()}
+        result = {"provider": "lightning", "workload": "RUNTIME_HEALTH"}
+        if self._runtime_handler:
+            result.update(self._runtime_handler.health())
+        if self._ollama_runtime:
+            ollama_health = self._ollama_runtime.health()
+            result["ollama_status"] = ollama_health.get("status", "ERROR")
+            result["ollama_model"] = ollama_health.get("loaded_model")
+        return result
 
     def _handle_runtime_infer(self, payload: dict) -> dict:
-        if not self._runtime_handler:
-            return {"status": "ERROR", "error": "Runtime not initialized"}
-        prompt = payload.get("prompt", "")
-        max_new_tokens = payload.get("max_new_tokens", 256)
-        temperature = payload.get("temperature", 0.7)
-        top_p = payload.get("top_p", 0.9)
-        return {"provider": "lightning", "workload": "RUNTIME_INFER",
-                **self._runtime_handler.infer(prompt, max_new_tokens, temperature, top_p)}
+        runtime_type = payload.get("runtime", "transformers")
+
+        if runtime_type == "ollama":
+            if not self._ollama_runtime:
+                return {"status": "ERROR", "error": "Ollama runtime not initialized"}
+            prompt = payload.get("prompt", "")
+            max_new_tokens = payload.get("max_new_tokens", 256)
+            temperature = payload.get("temperature", 0.7)
+            top_p = payload.get("top_p", 0.9)
+            return {"provider": "lightning", "workload": "RUNTIME_INFER",
+                    **self._ollama_runtime.infer(prompt, max_new_tokens, temperature, top_p)}
+        else:
+            if not self._runtime_handler:
+                return {"status": "ERROR", "error": "Runtime not initialized"}
+            prompt = payload.get("prompt", "")
+            max_new_tokens = payload.get("max_new_tokens", 256)
+            temperature = payload.get("temperature", 0.7)
+            top_p = payload.get("top_p", 0.9)
+            return {"provider": "lightning", "workload": "RUNTIME_INFER",
+                    **self._runtime_handler.infer(prompt, max_new_tokens, temperature, top_p)}
 
     def _run_benchmark(self, payload: dict) -> dict:
         matrix_size = payload.get("matrix_size", 1024)

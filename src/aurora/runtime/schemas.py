@@ -72,7 +72,12 @@ class ModelConfig(BaseModel):
     model_id: str = Field(..., min_length=1, max_length=128)
     model_name: str = Field(..., min_length=1, max_length=256)
     source_model_id: str = Field(..., min_length=1, max_length=256,
-                                 description="HuggingFace repo ID used to load weights via from_pretrained()")
+                                 description="HuggingFace repo ID or Ollama model name")
+    runtime: str = Field(default="transformers",
+                         description="Runtime backend: 'transformers' or 'ollama'")
+    runtime_model_id: str | None = Field(
+        default=None,
+        description="Model identifier for the runtime (e.g. Ollama model name 'qwen2.5:0.5b')")
     model_revision: str | None = None
     framework: str = "transformers"
     dtype: str = "float16"

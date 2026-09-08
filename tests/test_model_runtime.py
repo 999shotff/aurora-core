@@ -736,13 +736,13 @@ class TestSourceModelProvenance:
         from aurora.compute.manager import ComputeManager
         cm = ComputeManager()
         mgr = RuntimeManager(cm)
-        model = mgr.registry.models[0]
-        assert hasattr(model, "source_model_id")
-        assert model.source_model_id.startswith("HuggingFaceTB/") or \
-               model.source_model_id.startswith("microsoft/") or \
-               model.source_model_id.startswith("mistralai/") or \
-               model.source_model_id.startswith("Qwen/") or \
-               model.source_model_id.startswith("meta-llama/")
+        hf_prefixes = ("HuggingFaceTB/", "microsoft/", "mistralai/", "Qwen/", "meta-llama/")
+        for model in mgr.registry.models:
+            assert hasattr(model, "source_model_id")
+            if model.runtime == "ollama":
+                assert model.source_model_id  # Ollama models have Ollama-format IDs
+            else:
+                assert any(model.source_model_id.startswith(p) for p in hf_prefixes)
 
     def test_registry_models_endpoint_includes_source_model_id(self):
         from fastapi.testclient import TestClient

@@ -161,15 +161,17 @@ UNAVAILABLE → DISCOVERING → READY → LOADING → READY (model loaded)
 
 ### Model Registry
 
-5 approved models by default:
+7 approved models (6 Transformers + 1 Ollama):
 
-| Model | VRAM | Max Tokens | Best For |
-|-------|------|-----------|----------|
-| `smollm2-1.7b` | 2 GB | 8192 | Low-VRAM, fast inference |
-| `phi-3.5-mini` | 4 GB | 131072 | Strong reasoning, small size |
-| `mistral-7b` | 7 GB | 32768 | Strong reasoning per parameter |
-| `qwen2.5-7b` | 7 GB | 32768 | Multilingual, coding |
-| `llama-3.1-8b` | 8 GB | 131072 | General reasoning, instruction-tuned |
+| Model | Runtime | VRAM | Max Tokens | Best For |
+|-------|---------|------|-----------|----------|
+| `qwen2.5-0.5b-ollama` | Ollama | 1.5 GB | 2048 | First live GPU test via Ollama |
+| `qwen2.5-0.5b-instruct` | Transformers | 1.5 GB | 2048 | Lightweight test model |
+| `smollm2-1.7b` | Transformers | 2 GB | 8192 | Low-VRAM, fast inference |
+| `phi-3.5-mini` | Transformers | 4 GB | 131072 | Strong reasoning, small size |
+| `mistral-7b` | Transformers | 7 GB | 32768 | Strong reasoning per parameter |
+| `qwen2.5-7b` | Transformers | 7 GB | 32768 | Multilingual, coding |
+| `llama-3.1-8b` | Transformers | 8 GB | 131072 | General reasoning, instruction-tuned |
 
 ### Runtime API Endpoints
 
@@ -251,37 +253,39 @@ Evidence class remains `SIMULATED`. Never promoted to `REAL_OBSERVATION`.
 - Security (payload validation, no arbitrary exec, no secret leakage)
 - Stale worker detection
 
-### Model Runtime (99 tests)
-- Schema validation (ModelConfig with source_model_id, RuntimeInfo, InferenceRequest, InferenceResult)
-- Model registry (default models, lookup, VRAM estimation, source_model_id resolution)
-- Security (prompt validation, code exec prevention, model ID validation, source ID whitelist)
+### Model Runtime (134 tests)
+- Schema validation (ModelConfig with source_model_id, runtime, runtime_model_id, RuntimeInfo, InferenceRequest, InferenceResult)
+- Model registry (7 models: 1 Ollama + 6 Transformers, lookup, VRAM estimation, source_model_id resolution, runtime type)
+- Security (prompt validation, code exec prevention, model ID validation, source ID whitelist, Ollama model whitelist)
 - Runtime manager (lifecycle, discovery, load/unload, inference, provenance)
 - Runtime manager job dispatch (RUNTIME_LOAD, RUNTIME_UNLOAD, RUNTIME_INFER)
 - Compute runtime provider (LLM interface bridge)
 - REST API (health, runtimes, inference, registry)
 - Worker runtime handler — Colab (discover, load, unload, infer, health)
 - Worker runtime handler — Lightning (discover, load, unload, infer, health, source resolution)
+- Ollama runtime — Lightning (whitelist, load, infer, reject unapproved, routing by runtime type)
 - Worker job polling (pending jobs, result reporting)
 - Edge cases (defaults, bounds, limitations)
 
 ## Provider Status
 
 ### Lightning AI — Active Development
-- Worker client: **COMPLETE** (RuntimeHandler, job polling, runtime workloads)
+- Worker client: **COMPLETE** (RuntimeHandler, OllamaRuntime, job polling, runtime workloads)
 - GPU detection: **COMPLETE** (PyTorch CUDA + nvidia-smi fallback)
 - Benchmark: **COMPLETE** (real GPU matrix multiply)
-- Model runtime: **COMPLETE** (load, unload, infer via source_model_id resolution)
-- Security: **COMPLETE** (APPROVED_SOURCE_MODELS whitelist, reject arbitrary IDs/URLs)
+- Model runtime: **COMPLETE** (Transformers + Ollama, load/unload/infer via source_model_id resolution)
+- Security: **COMPLETE** (APPROVED_SOURCE_MODELS + APPROVED_OLLAMA_MODELS whitelist, reject arbitrary IDs/URLs)
 - Live GPU: **PENDING** — waiting for user to connect a real Lightning worker
 - Live inference: **PENDING** — requires connected Lightning GPU
 
-### Google Colab — Temporarily Deferred
+### Google Colab — Active for Ollama
 - Worker connection: previously successful
 - Tesla T4 detection: successful
 - Real GPU benchmark: successful
 - Compute Fabric integration: successful
-- Live model inference: **PENDING** — source-model-ID resolution fixed, needs re-verification
-- Status: Code intact, deferred until Lightning milestone complete
+- Ollama runtime: **COMPLETE** (OllamaRuntime, whitelist, localhost HTTP, load/unload/infer)
+- Live model inference: **PENDING** — Ollama path implemented, needs manual Colab test
+- Transformers runtime: **DEFERRED** — code intact, kept as alternative
 
 ## Live GPU Verification
 
