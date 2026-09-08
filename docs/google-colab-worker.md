@@ -255,6 +255,28 @@ Cell 6 gracefully shuts down:
 - Check Runtime → View runtime status
 - Ensure GPU is allocated
 
+### Ollama model not found
+- Model must be in approved whitelist: `qwen2.5:0.5b`
+- Run Cell 6 to verify Ollama + approved model
+- Check `AURORA_APPROVED_OLLAMA_MODELS` environment variable
+
+### Ollama not reachable
+- Run Cell 5 to install dependencies + Ollama
+- Check if Ollama binary exists at `/usr/local/bin/ollama`
+- Kill existing processes: `pkill -f ollama`
+- Start fresh: `/usr/local/bin/ollama serve &amp;`
+
+### Inference returns "runtime: ollama not available"
+- Ollama runtime handler not connected
+- Run Cell 3 (worker connection) + Cell 5 (Ollama install) + Cell 6 (Ollama verify)
+- Check that `_ollama_runtime` is initialized in worker
+
+### GPU/CPU status shows CPU_ONLY
+- Ollama is running but not using GPU
+- Check `nvidia-smi` output for Ollama processes
+- Ensure Ollama was started after GPU was allocated
+- Restart Ollama: `pkill -f ollama &amp;&amp; /usr/local/bin/ollama serve &amp;`
+
 ## Environment Variables
 
 | Variable | Where | Required | Description |
@@ -286,3 +308,37 @@ Cell 6 gracefully shuts down:
 3. **UNKNOWN** (if both fail)
    - Worker still connects
    - No GPU capabilities reported
+
+## Ollama Runtime
+
+The worker supports running inference via Ollama (localhost:11434) in addition to Transformers.
+
+### Architecture
+```
+AURORA → OllamaProvider → RuntimeManager → Compute Fabric → Colab Worker → Ollama → GPU → result
+```
+
+### Security Constraints
+- Ollama runs on **localhost only** (127.0.0.1:11434)
+- Ollama is **NOT exposed to public internet**
+- Only **approved models** can be loaded (whitelist enforced)
+- No arbitrary code execution
+- No credential storage
+
+### GPU/CPU Classification
+Cell 7 verifies GPU vs CPU execution:
+- **GPU_ACCELERATED**: Model running on GPU (confirmed via nvidia-smi/ollama ps)
+- **CPU_ONLY**: Model running on CPU
+- **GPU_AVAILABLE_BUT_NOT_USED**: GPU detected but Ollama not using it
+- **RUNTIME_UNAVAILABLE**: Cannot determine
+
+### Notebook Cells
+1. Cell 1: Configure (backend URL, worker token)
+2. Cell 2: Detect GPU
+3. Cell 3: Connect worker + start heartbeat + job polling
+4. Cell 4: Run GPU benchmark
+5. Cell 5: Install dependencies + Ollama
+6. Cell 6: Verify Ollama + approved model
+7. Cell 7: Verify GPU execution + run live inference
+8. Cell 8: Check runtime status (including GPU/CPU)
+9. Cell 9: Disconnect cleanly

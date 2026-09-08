@@ -287,6 +287,7 @@ class OllamaRuntime:
     """Handles Ollama runtime operations on the worker side.
 
     Communicates with a local Ollama instance via HTTP (localhost:11434).
+    Detects GPU/CPU execution via nvidia-smi and ollama ps.
     """
 
     def __init__(self, gpu_info: dict, base_url: str = OLLAMA_BASE_URL) -> None:
@@ -296,6 +297,7 @@ class OllamaRuntime:
         self._load_time: float | None = None
         self._total_inferences = 0
         self._total_errors = 0
+        self._last_gpu_status: str = "UNAVAILABLE"
 
     @property
     def is_model_loaded(self) -> bool:
@@ -329,15 +331,18 @@ class OllamaRuntime:
             return {"status": "ERROR", "error": "Ollama not reachable",
                     "ollama_url": self._base_url}
         models = [m.get("name", "") for m in info.get("models", [])]
+        gpu_status = self._detect_gpu_status()
         return {
             "status": "READY",
             "ollama_url": self._base_url,
             "available_models": models,
             "loaded_model": self._loaded_model,
+            "gpu_status": gpu_status,
         }
 
     def discover(self) -> dict:
         health = self.health()
+        gpu_status = self._detect_gpu_status()
         return {
             "status": health["status"],
             "runtime": "ollama",
@@ -347,7 +352,56 @@ class OllamaRuntime:
             "model_status": "LOADED" if self.is_model_loaded else "NOT_LOADED",
             "loaded_model": self._loaded_model,
             "available_models": health.get("available_models", []),
+            "gpu_status": gpu_status,
         }
+
+    def _detect_gpu_status(self) -> str:
+        """Detect whether Ollama is using GPU or CPU.
+
+        Returns one of:
+            GPU_ACCELERATED - model is running on GPU
+            CPU_ONLY - model is running on CPU
+            GPU_AVAILABLE_BUT_NOT_USED - GPU detected but Ollama not using it
+            RUNTIME_UNAVAILABLE - cannot determine
+        """
+        import subprocess
+
+        has_gpu = self._gpu_info.get("name", "UNKNOWN") != "UNKNOWN"
+
+        # Check nvidia-smi for GPU memory usage by ollama
+        try:
+            result = subprocess.run(
+                ["nvidia-smi", "--query-compute-apps=pid,used_memory",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0 and result.stdout.strip():
+                return "GPU_ACCELERATED"
+        except (FileNotFoundError, subprocess.TimeoutExpired):
+            pass
+
+        # Check ollama ps for processor info
+        try:
+            result = subprocess.run(
+                ["curl", "-s", f"{self._base_url}/api/ps"],
+                capture_output=True, text=True, timeout=5,
+            )
+            if result.returncode == 0:
+                import json as _json
+                ps_data = _json.loads(result.stdout)
+                models = ps_data.get("models", [])
+                for m in models:
+                    processor = m.get("processor", "")
+                    if "gpu" in processor.lower() or "cuda" in processor.lower():
+                        return "GPU_ACCELERATED"
+                    if "cpu" in processor.lower():
+                        return "CPU_ONLY"
+        except (FileNotFoundError, subprocess.TimeoutExpired, ValueError):
+            pass
+
+        if has_gpu:
+            return "GPU_AVAILABLE_BUT_NOT_USED"
+        return "RUNTIME_UNAVAILABLE"
 
     def ensure_model(self, ollama_model_name: str) -> dict:
         """Check if model exists locally, pull if not present."""
@@ -412,20 +466,16 @@ class OllamaRuntime:
             self._loaded_model = approved_name
             self._load_time = time.time() - start
 
-            # Try to detect GPU usage from Ollama
-            gpu_info_str = warmup.get("eval_duration", "")
-            gpu_info = {}
-            if "cuda" in str(warmup).lower() or self._gpu_info.get("name") != "UNKNOWN":
-                gpu_info["gpu_execution"] = "LIKELY"
-            else:
-                gpu_info["gpu_execution"] = "UNCONFIRMED"
+            # Detect actual GPU usage after warm-up
+            gpu_status = self._detect_gpu_status()
+            self._last_gpu_status = gpu_status
 
             return {
                 "status": "LOADED",
                 "model_id": model_id,
                 "ollama_model": approved_name,
                 "load_time_seconds": round(self._load_time, 2),
-                "gpu_execution": gpu_info.get("gpu_execution", "UNCONFIRMED"),
+                "gpu_status": gpu_status,
             }
         except Exception as e:
             self._total_errors += 1
@@ -466,6 +516,10 @@ class OllamaRuntime:
             tokens = result.get("eval_count", len(output.split()))
             self._total_inferences += 1
 
+            # Check GPU status after inference
+            gpu_status = self._detect_gpu_status()
+            self._last_gpu_status = gpu_status
+
             return {
                 "status": "COMPLETED",
                 "output": output,
@@ -473,7 +527,7 @@ class OllamaRuntime:
                 "generation_time_seconds": round(gen_time, 3),
                 "tokens_per_second": round(tokens / gen_time, 1) if gen_time > 0 else 0,
                 "model": self._loaded_model,
-                "gpu_execution": "UNCONFIRMED",
+                "gpu_status": gpu_status,
             }
         except Exception as e:
             self._total_errors += 1

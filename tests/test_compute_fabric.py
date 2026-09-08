@@ -1658,3 +1658,358 @@ class TestOllamaRuntime:
         result = runtime.unload_model()
         assert result["status"] == "NOT_LOADED"
         assert result["unloaded_model"] == "qwen2.5:0.5b"
+
+
+# ============================================================
+# Ollama GPU/CPU Detection, Startup, Provenance, Security
+# ============================================================
+
+
+class TestOllamaGPUDetection:
+    """Tests for GPU/CPU runtime classification."""
+
+    def test_detect_gpu_status_returns_valid_classifications(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": []}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch("subprocess.run") as mock_run:
+            # Simulate GPU memory usage found
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="12345, 512 MiB\n",
+            )
+            status = runtime._detect_gpu_status()
+            assert status in ("GPU_ACCELERATED", "CPU_ONLY", "GPU_AVAILABLE_BUT_NOT_USED", "RUNTIME_UNAVAILABLE")
+
+    def test_detect_gpu_status_gpu_accelerated(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.return_value = MagicMock(
+                returncode=0,
+                stdout="12345, 512 MiB\n",
+            )
+            status = runtime._detect_gpu_status()
+            assert status == "GPU_ACCELERATED"
+
+    def test_detect_gpu_status_cpu_only_via_ps(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch("subprocess.run") as mock_run:
+            # nvidia-smi fails (no GPU processes)
+            mock_run.side_effect = [
+                MagicMock(returncode=1, stdout=""),  # nvidia-smi no processes
+                MagicMock(returncode=0, stdout='{"models": [{"processor": "cpu"}]}'),  # ollama ps
+            ]
+            status = runtime._detect_gpu_status()
+            assert status == "CPU_ONLY"
+
+    def test_detect_gpu_status_gpu_available_but_not_used(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch("subprocess.run") as mock_run:
+            # nvidia-smi fails, ollama ps fails
+            mock_run.side_effect = [
+                MagicMock(returncode=1, stdout=""),
+                FileNotFoundError(),
+            ]
+            status = runtime._detect_gpu_status()
+            assert status == "GPU_AVAILABLE_BUT_NOT_USED"
+
+    def test_detect_gpu_status_no_gpu_hardware(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "UNKNOWN", "vram_mb": 0}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch("subprocess.run") as mock_run:
+            mock_run.side_effect = [
+                FileNotFoundError(),
+                FileNotFoundError(),
+            ]
+            status = runtime._detect_gpu_status()
+            assert status == "RUNTIME_UNAVAILABLE"
+
+    def test_health_includes_gpu_status(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch.object(runtime, "_detect_gpu_status", return_value="GPU_ACCELERATED"):
+            result = runtime.health()
+            assert "gpu_status" in result
+            assert result["gpu_status"] == "GPU_ACCELERATED"
+
+    def test_discover_includes_gpu_status(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": []}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch.object(runtime, "_detect_gpu_status", return_value="CPU_ONLY"):
+            result = runtime.discover()
+            assert "gpu_status" in result
+            assert result["gpu_status"] == "CPU_ONLY"
+
+
+class TestOllamaProvenance:
+    """Tests for inference provenance preservation."""
+
+    def test_infer_returns_provenance_fields(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+        runtime._loaded_model = "qwen2.5:0.5b"
+
+        mock_result = MagicMock()
+        mock_result.status_code = 200
+        mock_result.json.return_value = {
+            "response": "Evidence matters because...",
+            "eval_count": 42,
+            "eval_duration": 1_000_000_000,
+        }
+
+        with patch("workers.lightning.worker.requests.post", return_value=mock_result), \
+             patch.object(runtime, "_detect_gpu_status", return_value="GPU_ACCELERATED"):
+            result = runtime.infer("test prompt")
+
+        assert result["status"] == "COMPLETED"
+        assert result["model"] == "qwen2.5:0.5b"
+        assert result["tokens_generated"] == 42
+        assert result["generation_time_seconds"] >= 0
+        assert result["tokens_per_second"] >= 0
+        assert result["gpu_status"] == "GPU_ACCELERATED"
+        assert "output" in result and len(result["output"]) > 0
+
+    def test_infer_increments_counters(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+        runtime._loaded_model = "qwen2.5:0.5b"
+
+        mock_result = MagicMock()
+        mock_result.status_code = 200
+        mock_result.json.return_value = {"response": "ok", "eval_count": 1}
+
+        with patch("workers.lightning.worker.requests.post", return_value=mock_result), \
+             patch.object(runtime, "_detect_gpu_status", return_value="GPU_ACCELERATED"):
+            runtime.infer("test")
+            runtime.infer("test2")
+
+        assert runtime._total_inferences == 2
+        assert runtime._total_errors == 0
+
+    def test_load_model_returns_gpu_status(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        mock_generate = MagicMock()
+        mock_generate.status_code = 200
+        mock_generate.json.return_value = {"response": "ok", "eval_count": 1}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch("workers.lightning.worker.requests.post", return_value=mock_generate), \
+             patch.object(runtime, "_detect_gpu_status", return_value="GPU_ACCELERATED"):
+            result = runtime.load_model("qwen2.5-0.5b-ollama", "qwen2.5:0.5b")
+
+        assert result["status"] == "LOADED"
+        assert result["gpu_status"] == "GPU_ACCELERATED"
+
+
+class TestOllamaSecurity:
+    """Tests for Ollama security constraints."""
+
+    def test_ollama_endpoint_is_localhost_only(self):
+        from workers.lightning.worker import OLLAMA_BASE_URL
+        assert OLLAMA_BASE_URL == "http://127.0.0.1:11434"
+        assert "0.0.0.0" not in OLLAMA_BASE_URL
+        assert "localhost" in OLLAMA_BASE_URL or "127.0.0.1" in OLLAMA_BASE_URL
+
+    def test_rejects_unapproved_model(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": [{"name": "evil-model"}]}
+
+        mock_generate = MagicMock()
+        mock_generate.status_code = 200
+        mock_generate.json.return_value = {"response": "ok"}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch("workers.lightning.worker.requests.post", return_value=mock_generate):
+            result = runtime.load_model("evil-model", "evil-model:latest")
+            assert result["status"] == "ERROR"
+            assert "not in approved" in result["error"].lower()
+
+    def test_rejects_arbitrary_model_id(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        result = runtime.load_model("random-model-123", "random:latest")
+        assert result["status"] == "ERROR"
+
+    def test_no_secrets_in_health_response(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": []}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch.object(runtime, "_detect_gpu_status", return_value="GPU_ACCELERATED"):
+            result = runtime.health()
+            result_str = str(result)
+            assert "token" not in result_str.lower() or "worker_token" not in result_str.lower()
+            assert "api_key" not in result_str.lower()
+            assert "secret" not in result_str.lower()
+
+    def test_no_secrets_in_discover_response(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": []}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch.object(runtime, "_detect_gpu_status", return_value="GPU_ACCELERATED"):
+            result = runtime.discover()
+            result_str = str(result)
+            assert "api_key" not in result_str.lower()
+            assert "secret" not in result_str.lower()
+
+
+class TestOllamaStartup:
+    """Tests for Ollama startup readiness."""
+
+    def test_health_error_when_not_reachable(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch.object(runtime, "_ollama_get", return_value=None):
+            result = runtime.health()
+            assert result["status"] == "ERROR"
+            assert "not reachable" in result["error"].lower()
+
+    def test_health_ready_with_models(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {
+            "models": [
+                {"name": "qwen2.5:0.5b"},
+                {"name": "llama3:8b"},
+            ]
+        }
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch.object(runtime, "_detect_gpu_status", return_value="GPU_ACCELERATED"):
+            result = runtime.health()
+            assert result["status"] == "READY"
+            assert "qwen2.5:0.5b" in result["available_models"]
+            assert len(result["available_models"]) == 2
+
+    def test_ensure_model_pulls_when_missing(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags_empty = MagicMock()
+        mock_tags_empty.status_code = 200
+        mock_tags_empty.json.return_value = {"models": []}
+
+        mock_tags_full = MagicMock()
+        mock_tags_full.status_code = 200
+        mock_tags_full.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        mock_pull = MagicMock()
+        mock_pull.status_code = 200
+        mock_pull.json.return_value = {"status": "success"}
+
+        with patch("workers.lightning.worker.requests.get",
+                   side_effect=[mock_tags_empty, mock_tags_full]), \
+             patch("workers.lightning.worker.requests.post", return_value=mock_pull):
+            result = runtime.ensure_model("qwen2.5:0.5b")
+            assert result["status"] == "READY"
+
+    def test_ensure_model_not_reachable(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch.object(runtime, "_ollama_get", return_value=None):
+            result = runtime.ensure_model("qwen2.5:0.5b")
+            assert result["status"] == "ERROR"
+            assert "not reachable" in result["error"].lower()
