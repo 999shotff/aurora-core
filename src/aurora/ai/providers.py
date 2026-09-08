@@ -314,17 +314,8 @@ class OllamaProvider(LLMProvider):
             return await self._runtime.load_model(req)
 
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    disc_future = pool.submit(asyncio.run, _discover())
-                    disc_result = disc_future.result(timeout=30)
-                    load_future = pool.submit(asyncio.run, _load())
-                    load_result = load_future.result(timeout=120)
-            else:
-                disc_result = loop.run_until_complete(_discover())
-                load_result = loop.run_until_complete(_load())
+            disc_result = asyncio.run(_discover())
+            load_result = asyncio.run(_load())
 
             if hasattr(load_result, "status") and load_result.status.value == "ERROR":
                 raise LLMUnavailable(f"Model load failed: {load_result.error}")
@@ -360,18 +351,7 @@ class OllamaProvider(LLMProvider):
 
         import asyncio
         try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                import concurrent.futures
-                with concurrent.futures.ThreadPoolExecutor() as pool:
-                    future = pool.submit(
-                        asyncio.run, self._runtime.run_inference(request)
-                    )
-                    result = future.result(timeout=timeout + 10)
-            else:
-                result = loop.run_until_complete(
-                    self._runtime.run_inference(request)
-                )
+            result = asyncio.run(self._runtime.run_inference(request))
         except TimeoutError:
             raise LLMTimeout(f"Ollama inference timed out after {timeout}s")
         except Exception as exc:
