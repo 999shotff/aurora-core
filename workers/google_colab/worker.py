@@ -79,9 +79,9 @@ class GPUInfo:
                     str(x) for x in torch.cuda.get_device_capability(0)
                 )
                 mem = torch.cuda.get_device_properties(0)
-                info["vram_mb"] = round(mem.total_mem / (1024 * 1024), 1)
+                info["vram_mb"] = round(mem.total_memory / (1024 * 1024), 1)
                 info["available_memory_mb"] = round(
-                    (mem.total_mem - torch.cuda.memory_allocated(0)) / (1024 * 1024), 1
+                    (mem.total_memory - torch.cuda.memory_allocated(0)) / (1024 * 1024), 1
                 )
                 info["runtime_info"] = f"PyTorch {torch.__version__}"
                 return info
