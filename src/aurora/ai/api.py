@@ -140,49 +140,7 @@ def reason_health() -> dict:
     }
 
 
-@reason_app.get("/api/v1/reason/ollama-debug")
-def ollama_debug() -> dict:
-    """Diagnostic endpoint for Ollama provider auto-discovery."""
-    import os
-    provider_name = os.environ.get("AURORA_LLM_PROVIDER", "stub")
-    service = _get_service()
-    from aurora.ai.providers import OllamaProvider, _runtime_manager_ref
-    provider = service.provider_registry.get()
-    result = {
-        "env_provider": provider_name,
-        "active_provider": provider.name,
-        "runtime_ref_set": _runtime_manager_ref is not None,
-    }
-    if isinstance(provider, OllamaProvider):
-        result["is_ollama"] = True
-        rm = provider._runtime
-        result["runtime_manager_same"] = rm is _runtime_manager_ref
-        result["compute_manager_id"] = id(rm._compute)
-        result["compute_ref_manager_id"] = id(_runtime_manager_ref._compute) if _runtime_manager_ref else None
-        providers = rm._compute._registry.list_providers()
-        result["compute_providers"] = [
-            {
-                "id": p.provider_id,
-                "has_worker_id": hasattr(p, "get_worker_id"),
-                "worker_id": p.get_worker_id() if hasattr(p, "get_worker_id") else None,
-                "health": p.health().value,
-            }
-            for p in providers
-        ]
-        result["runtimes"] = [
-            {"id": r.runtime_id, "status": r.status.value, "model_status": r.model_load_status.value}
-            for r in rm.list_runtimes()
-        ]
-        try:
-            result["ensure_would_find_worker"] = any(
-                hasattr(p, "get_worker_id") and p.get_worker_id() and p.health().value == "READY"
-                for p in providers
-            )
-        except Exception as exc:
-            result["ensure_error"] = str(exc)
-    else:
-        result["is_ollama"] = False
-    return result
+@reason_app.post("/api/v1/reason", response_model=ReasonAPIResponse)
 def reason(body: ReasonAPIRequest) -> dict:
     """Process a reasoning request (LLM-1).
 
