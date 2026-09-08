@@ -120,8 +120,9 @@ class TestOllamaProvider:
         mock_rm.run_inference = mock_run_inference
         provider = OllamaProvider(mock_rm)
         provider._model_id = "qwen2.5-0.5b-ollama"
-        with pytest.raises(LLMUnavailable, match="Ollama inference failed"):
-            provider.generate([{"role": "user", "content": "test"}])
+        with patch.object(provider, "_ensure_runtime_loaded"):
+            with pytest.raises(LLMUnavailable, match="Ollama inference failed"):
+                provider.generate([{"role": "user", "content": "test"}])
 
 
 class TestOllamaProviderRegistry:

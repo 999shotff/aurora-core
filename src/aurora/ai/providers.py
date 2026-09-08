@@ -269,6 +269,63 @@ class OllamaProvider(LLMProvider):
         if worker_id:
             self._worker_id = worker_id
 
+    def _ensure_runtime_loaded(self) -> None:
+        """Discover runtime and load model if not already loaded."""
+        runtimes = self._runtime.list_runtimes()
+        loaded = any(
+            r.status.value == "READY" and r.model_load_status.value == "LOADED"
+            for r in runtimes
+        )
+        if loaded:
+            return
+
+        import asyncio
+        from aurora.runtime.schemas import RuntimeDiscoverRequest, RuntimeLoadRequest
+
+        compute = self._runtime._compute
+        providers = compute._registry.list_providers()
+        ready_worker_id = None
+        for p in providers:
+            if hasattr(p, "get_worker_id"):
+                wid = p.get_worker_id()
+                if wid and p.health().value == "READY":
+                    ready_worker_id = wid
+                    break
+
+        if not ready_worker_id:
+            raise LLMUnavailable("No READY worker available for Ollama inference")
+
+        async def _discover():
+            req = RuntimeDiscoverRequest(worker_id=ready_worker_id)
+            return await self._runtime.discover_runtime(req)
+
+        async def _load():
+            req = RuntimeLoadRequest(
+                model_id=self._model_id,
+                worker_id=ready_worker_id,
+            )
+            return await self._runtime.load_model(req)
+
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    disc_future = pool.submit(asyncio.run, _discover())
+                    disc_result = disc_future.result(timeout=30)
+                    load_future = pool.submit(asyncio.run, _load())
+                    load_result = load_future.result(timeout=120)
+            else:
+                disc_result = loop.run_until_complete(_discover())
+                load_result = loop.run_until_complete(_load())
+
+            if hasattr(load_result, "status") and load_result.status.value == "ERROR":
+                raise LLMUnavailable(f"Model load failed: {load_result.error}")
+        except LLMUnavailable:
+            raise
+        except Exception as exc:
+            raise LLMUnavailable(f"Runtime setup failed: {exc}")
+
     def generate(
         self,
         messages: list[dict[str, str]],
@@ -280,6 +337,8 @@ class OllamaProvider(LLMProvider):
 
         if not self._model_id:
             raise LLMUnavailable("No model configured")
+
+        self._ensure_runtime_loaded()
 
         prompt = self._messages_to_prompt(messages)
 
