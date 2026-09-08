@@ -20,6 +20,13 @@ from aurora.ai.errors import (
 if TYPE_CHECKING:
     from aurora.runtime.manager import RuntimeManager
 
+_runtime_manager_ref: RuntimeManager | None = None
+
+
+def set_runtime_manager_ref(rm: RuntimeManager) -> None:
+    global _runtime_manager_ref
+    _runtime_manager_ref = rm
+
 
 @dataclass(frozen=True)
 class ProviderCapabilities:
@@ -483,8 +490,11 @@ def create_provider_registry() -> ProviderRegistry:
     model = os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini")
 
     if provider_name == "ollama":
-        from aurora.market.api import _ensure_runtime_manager
-        rm = _ensure_runtime_manager()
+        if _runtime_manager_ref is None:
+            from aurora.market.api import _ensure_runtime_manager
+            rm = _ensure_runtime_manager()
+        else:
+            rm = _runtime_manager_ref
         provider = OllamaProvider(rm)
         registry.register(provider, default=True)
     elif provider_name != "stub" and api_key:

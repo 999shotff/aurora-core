@@ -169,6 +169,10 @@ def _ensure_runtime_manager() -> RuntimeManager:
 
 
 _ensure_runtime_manager()
+
+from aurora.ai.providers import set_runtime_manager_ref
+set_runtime_manager_ref(_runtime_manager_instance)
+
 app.include_router(runtime_router)
 
 # Unified Analysis: Mount analysis sub-application
