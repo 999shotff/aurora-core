@@ -10,11 +10,15 @@ import json
 import os
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from aurora.ai.errors import (
     LLMTimeout,
     LLMUnavailable,
 )
+
+if TYPE_CHECKING:
+    from aurora.runtime.manager import RuntimeManager
 
 
 @dataclass(frozen=True)
@@ -220,6 +224,146 @@ class OpenAICompatibleProvider(LLMProvider):
 
 
 # ============================================================
+# Ollama Provider (via Compute Fabric)
+# ============================================================
+
+
+class OllamaProvider(LLMProvider):
+    """LLM provider backed by Ollama runtime through AURORA Compute Fabric.
+
+    Dispatches inference to a remote GPU worker (Colab/Lightning) running
+    Ollama via the RuntimeManager. The provider never directly communicates
+    with Ollama; all communication goes through the Compute Fabric.
+
+    Configuration:
+        AURORA_LLM_PROVIDER=ollama
+        AURORA_LLM_MODEL=qwen2.5-0.5b-ollama  (optional, default: qwen2.5-0.5b-ollama)
+    """
+
+    OLLAMA_MODEL_ID = "qwen2.5-0.5b-ollama"
+    OLLAMA_MODEL_NAME = "qwen2.5:0.5b"
+    OLLAMA_RUNTIME = "ollama"
+
+    def __init__(self, runtime_manager: RuntimeManager) -> None:
+        self._runtime = runtime_manager
+        self._model_id = os.environ.get(
+            "AURORA_LLM_MODEL", self.OLLAMA_MODEL_ID
+        )
+        self._worker_id: str | None = None
+
+    @property
+    def name(self) -> str:
+        return "ollama"
+
+    @property
+    def is_available(self) -> bool:
+        runtimes = self._runtime.list_runtimes()
+        return any(
+            r.status.value == "READY" and r.model_load_status.value == "LOADED"
+            for r in runtimes
+        )
+
+    def configure(self, model_id: str | None = None, worker_id: str | None = None) -> None:
+        if model_id:
+            self._model_id = model_id
+        if worker_id:
+            self._worker_id = worker_id
+
+    def generate(
+        self,
+        messages: list[dict[str, str]],
+        max_tokens: int = 2048,
+        temperature: float = 0.0,
+        timeout: float = 60.0,
+    ) -> str:
+        from aurora.runtime.schemas import InferenceRequest, InferenceStatus
+
+        if not self._model_id:
+            raise LLMUnavailable("No model configured")
+
+        prompt = self._messages_to_prompt(messages)
+
+        request = InferenceRequest(
+            model_id=self._model_id,
+            worker_id=self._worker_id,
+            prompt=prompt,
+            max_new_tokens=min(max_tokens, 4096),
+            temperature=temperature,
+            timeout_seconds=int(timeout),
+        )
+
+        import asyncio
+        try:
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                import concurrent.futures
+                with concurrent.futures.ThreadPoolExecutor() as pool:
+                    future = pool.submit(
+                        asyncio.run, self._runtime.run_inference(request)
+                    )
+                    result = future.result(timeout=timeout + 10)
+            else:
+                result = loop.run_until_complete(
+                    self._runtime.run_inference(request)
+                )
+        except TimeoutError:
+            raise LLMTimeout(f"Ollama inference timed out after {timeout}s")
+        except Exception as exc:
+            raise LLMUnavailable(f"Ollama inference failed: {exc}")
+
+        if result.status == InferenceStatus.TIMEOUT:
+            raise LLMTimeout("Ollama inference timed out")
+        if result.status != InferenceStatus.COMPLETED:
+            raise LLMUnavailable(
+                f"Ollama inference failed: {result.error or result.status.value}"
+            )
+
+        return result.output or ""
+
+    def capabilities(self) -> ProviderCapabilities:
+        return ProviderCapabilities(
+            name="ollama",
+            models=[self.OLLAMA_MODEL_ID],
+            max_context_tokens=32768,
+            max_output_tokens=2048,
+            supports_structured_output=False,
+            requires_api_key=False,
+        )
+
+    def health_check(self) -> dict:
+        runtime = None
+        for r in self._runtime.list_runtimes():
+            if self._worker_id and r.worker_id == self._worker_id:
+                runtime = r
+                break
+        if not runtime:
+            runtimes = self._runtime.list_runtimes()
+            runtime = runtimes[0] if runtimes else None
+
+        return {
+            "provider": "ollama",
+            "available": self.is_available,
+            "model_id": self._model_id,
+            "ollama_model": self.OLLAMA_MODEL_NAME,
+            "runtime_type": self.OLLAMA_RUNTIME,
+            "worker_id": self._worker_id or "auto",
+            "runtime_status": runtime.status.value if runtime else "NO_RUNTIME",
+            "model_status": (
+                runtime.model_load_status.value if runtime else "NOT_LOADED"
+            ),
+            "gpu": runtime.gpu_name if runtime else None,
+        }
+
+    def _messages_to_prompt(self, messages: list[dict[str, str]]) -> str:
+        parts = []
+        for msg in messages:
+            role = msg.get("role", "user")
+            content = msg.get("content", "")
+            parts.append(f"[{role}]: {content}")
+        return "\n".join(parts)
+
+
+# ============================================================
 # Provider Registry
 # ============================================================
 
@@ -279,7 +423,14 @@ def create_provider_registry() -> ProviderRegistry:
     base_url = os.environ.get("AURORA_LLM_BASE_URL", "https://api.openai.com/v1")
     model = os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini")
 
-    if provider_name != "stub" and api_key:
+    if provider_name == "ollama":
+        from aurora.runtime.manager import RuntimeManager
+        from aurora.compute.manager import ComputeManager
+        cm = ComputeManager()
+        rm = RuntimeManager(cm)
+        provider = OllamaProvider(rm)
+        registry.register(provider, default=True)
+    elif provider_name != "stub" and api_key:
         provider = OpenAICompatibleProvider(
             api_key=api_key,
             base_url=base_url,

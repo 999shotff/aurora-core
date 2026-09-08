@@ -18,6 +18,7 @@ import {
   type EvidenceClass,
 } from '../services/analysis';
 import { getComputeStatus, type ComputeStatus } from '../services/compute';
+import { reasonHealth } from '../services/reasoning';
 
 const BIAS_COLORS: Record<DirectionalBias, string> = {
   UP: 'var(--aur-positive)',
@@ -244,11 +245,15 @@ export const TerminalPage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [computeStatus, setComputeStatus] = useState<ComputeStatus | null>(null);
+  const [llmProvider, setLlmProvider] = useState<string>('stub');
 
   useEffect(() => {
     emit('navigation', 'Terminal opened', 'live');
     getAnalysisHealth().catch(() => {});
     getComputeStatus().then(setComputeStatus).catch(() => {});
+    reasonHealth().then(h => {
+      if (h?.providers?.default) setLlmProvider(h.providers.default);
+    }).catch(() => {});
   }, []);
 
   const handleAnalyze = useCallback(async () => {
@@ -322,6 +327,21 @@ export const TerminalPage: React.FC = () => {
               background: computeStatus?.enabled ? 'var(--aur-positive)' : 'var(--aur-ink-dim)',
             }} />
             {computeStatus?.enabled ? 'GPU ON' : 'GPU OFF'}
+          </div>
+
+          {/* LLM Provider pill */}
+          <div style={{
+            display: 'flex', alignItems: 'center', gap: 6,
+            padding: '6px 10px', borderRadius: 6,
+            background: llmProvider !== 'stub' ? 'rgba(99,102,241,0.12)' : 'rgba(255,255,255,0.05)',
+            border: `1px solid ${llmProvider !== 'stub' ? 'rgba(99,102,241,0.28)' : 'rgba(255,255,255,0.1)'}`,
+            fontSize: 10, fontWeight: 600,
+          }}>
+            <span style={{
+              width: 5, height: 5, borderRadius: '50%',
+              background: llmProvider !== 'stub' ? 'var(--aur-accent)' : 'var(--aur-ink-dim)',
+            }} />
+            LLM: {llmProvider.toUpperCase()}
           </div>
         </div>
       </GlassPanel>
