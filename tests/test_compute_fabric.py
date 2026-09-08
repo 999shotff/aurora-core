@@ -1404,3 +1404,257 @@ class TestOllamaRuntime:
             assert result["provider"] == "lightning"
             assert result["workload"] == "RUNTIME_INFER"
             assert result["status"] == "COMPLETED"
+
+    def test_ollama_health_not_reachable(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+        import requests as req_lib
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch("workers.lightning.worker.requests.get", side_effect=req_lib.RequestException("connection refused")):
+            health = runtime.health()
+            assert health["status"] == "ERROR"
+            assert "not reachable" in health["error"]
+            assert health["ollama_url"] == "http://127.0.0.1:11434"
+
+    def test_ollama_health_ready(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {
+            "models": [{"name": "qwen2.5:0.5b"}, {"name": "llama3:8b"}],
+        }
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_resp):
+            health = runtime.health()
+            assert health["status"] == "READY"
+            assert "qwen2.5:0.5b" in health["available_models"]
+            assert "llama3:8b" in health["available_models"]
+            assert health["loaded_model"] is None
+
+    def test_ollama_discover_includes_runtime_info(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_resp):
+            result = runtime.discover()
+            assert result["runtime"] == "ollama"
+            assert result["gpu_name"] == "Tesla T4"
+            assert result["vram_mb"] == 15000
+            assert result["model_status"] == "NOT_LOADED"
+            assert result["available_models"] == ["qwen2.5:0.5b"]
+
+    def test_ollama_model_not_loaded_infer_fails(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        result = runtime.infer("test", max_new_tokens=10)
+        assert result["status"] == "ERROR"
+        assert "No model loaded" in result["error"]
+
+    def test_ollama_model_loaded_state_tracking(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        assert runtime.is_model_loaded is False
+        assert runtime.loaded_model_id is None
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        mock_generate = MagicMock()
+        mock_generate.status_code = 200
+        mock_generate.json.return_value = {"response": "ok", "eval_count": 1}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch("workers.lightning.worker.requests.post", return_value=mock_generate):
+            result = runtime.load_model("qwen2.5-0.5b-ollama", "qwen2.5:0.5b")
+            assert result["status"] == "LOADED"
+            assert runtime.is_model_loaded is True
+            assert runtime.loaded_model_id == "qwen2.5:0.5b"
+
+        unload_result = runtime.unload_model()
+        assert unload_result["status"] == "NOT_LOADED"
+        assert runtime.is_model_loaded is False
+        assert runtime.loaded_model_id is None
+
+    def test_ollama_load_rejects_duplicate_load(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+        runtime._loaded_model = "qwen2.5:0.5b"
+
+        result = runtime.load_model("qwen2.5-0.5b-ollama", "qwen2.5:0.5b")
+        assert result["status"] == "ERROR"
+        assert "already loaded" in result["error"]
+
+    def test_ollama_unload_when_not_loaded(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        result = runtime.unload_model()
+        assert result["status"] == "NOT_LOADED"
+
+    def test_ollama_infer_increments_counters(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+        runtime._loaded_model = "qwen2.5:0.5b"
+
+        mock_generate = MagicMock()
+        mock_generate.status_code = 200
+        mock_generate.json.return_value = {"response": "test output", "eval_count": 5}
+
+        with patch("workers.lightning.worker.requests.post", return_value=mock_generate):
+            runtime.infer("prompt1", max_new_tokens=10)
+            runtime.infer("prompt2", max_new_tokens=10)
+
+        assert runtime._total_inferences == 2
+        assert runtime._total_errors == 0
+
+    def test_ollama_infer_error_increments_error_counter(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+        runtime._loaded_model = "qwen2.5:0.5b"
+
+        with patch.object(runtime, "_ollama_post", return_value=None):
+            result = runtime.infer("prompt", max_new_tokens=10)
+            assert result["status"] == "FAILED"
+            assert "Ollama inference failed" in result["error"]
+
+    def test_ollama_infer_exception_increments_error_counter(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+        runtime._loaded_model = "qwen2.5:0.5b"
+
+        with patch.object(runtime, "_ollama_post", side_effect=RuntimeError("unexpected")):
+            result = runtime.infer("prompt", max_new_tokens=10)
+            assert result["status"] == "FAILED"
+            assert runtime._total_errors == 1
+
+    def test_ollama_ensure_model_pulls_when_missing(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags_empty = MagicMock()
+        mock_tags_empty.status_code = 200
+        mock_tags_empty.json.return_value = {"models": []}
+
+        mock_tags_after_pull = MagicMock()
+        mock_tags_after_pull.status_code = 200
+        mock_tags_after_pull.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        mock_pull = MagicMock()
+        mock_pull.status_code = 200
+        mock_pull.json.return_value = {"status": "success"}
+
+        call_count = [0]
+        def mock_get(url, **kwargs):
+            call_count[0] += 1
+            if call_count[0] <= 1:
+                return mock_tags_empty
+            return mock_tags_after_pull
+
+        with patch("workers.lightning.worker.requests.get", side_effect=mock_get), \
+             patch("workers.lightning.worker.requests.post", return_value=mock_pull):
+            result = runtime.ensure_model("qwen2.5:0.5b")
+            assert result["status"] == "READY"
+            assert result["model"] == "qwen2.5:0.5b"
+
+    def test_ollama_ensure_model_already_available(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_resp = MagicMock()
+        mock_resp.status_code = 200
+        mock_resp.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_resp):
+            result = runtime.ensure_model("qwen2.5:0.5b")
+            assert result["status"] == "READY"
+            assert result["model"] == "qwen2.5:0.5b"
+
+    def test_ollama_ensure_model_not_reachable(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock, patch
+        import requests as req_lib
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        with patch("workers.lightning.worker.requests.get", side_effect=req_lib.RequestException("refused")):
+            result = runtime.ensure_model("qwen2.5:0.5b")
+            assert result["status"] == "ERROR"
+            assert "not reachable" in result["error"]
+
+    def test_ollama_load_validates_ollama_model_name_directly(self):
+        from workers.lightning.worker import OllamaRuntime, APPROVED_OLLAMA_IDS
+        from unittest.mock import MagicMock, patch
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+
+        mock_tags = MagicMock()
+        mock_tags.status_code = 200
+        mock_tags.json.return_value = {"models": [{"name": "qwen2.5:0.5b"}]}
+
+        mock_generate = MagicMock()
+        mock_generate.status_code = 200
+        mock_generate.json.return_value = {"response": "ok", "eval_count": 1}
+
+        with patch("workers.lightning.worker.requests.get", return_value=mock_tags), \
+             patch("workers.lightning.worker.requests.post", return_value=mock_generate):
+            result = runtime.load_model("unknown-id", "qwen2.5:0.5b")
+            assert result["status"] == "LOADED"
+
+    def test_ollama_unload_returns_model_name(self):
+        from workers.lightning.worker import OllamaRuntime
+        from unittest.mock import MagicMock
+
+        mock_gpu = {"name": "Tesla T4", "vram_mb": 15000}
+        runtime = OllamaRuntime(mock_gpu)
+        runtime._loaded_model = "qwen2.5:0.5b"
+
+        result = runtime.unload_model()
+        assert result["status"] == "NOT_LOADED"
+        assert result["unloaded_model"] == "qwen2.5:0.5b"
