@@ -606,6 +606,48 @@ class TestComputeAPIOpenAICompatible:
         assert data["api_key_configured"] is True
         assert "secret-key" not in json.dumps(data)
 
+    def test_infer_endpoint_not_configured(self):
+        from fastapi.testclient import TestClient
+        from aurora.compute.api import _openai_compatible_config
+        app = self._get_app()
+        client = TestClient(app)
+
+        _openai_compatible_config.clear()
+        resp = client.post("/api/v1/compute/providers/openai-compatible/infer", json={
+            "messages": [{"role": "user", "content": "hi"}],
+        })
+        assert resp.status_code == 400
+
+    def test_infer_endpoint_success(self):
+        from fastapi.testclient import TestClient
+        from aurora.compute.api import _openai_compatible_config
+        app = self._get_app()
+        client = TestClient(app)
+
+        _openai_compatible_config.clear()
+        _openai_compatible_config["base_url"] = "https://api.example.com/v1"
+        _openai_compatible_config["api_key"] = "test-key"
+        _openai_compatible_config["model"] = "test-model"
+
+        mock_response = MagicMock()
+        mock_response.read.return_value = json.dumps({
+            "choices": [{"message": {"content": "Hello"}}],
+        }).encode("utf-8")
+        mock_response.__enter__ = MagicMock(return_value=mock_response)
+        mock_response.__exit__ = MagicMock(return_value=False)
+
+        with patch("urllib.request.urlopen", return_value=mock_response):
+            resp = client.post("/api/v1/compute/providers/openai-compatible/infer", json={
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 100,
+            })
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "COMPLETED"
+            assert data["output"] == "Hello"
+            assert "provenance" in data
+            assert "secret-key" not in json.dumps(data)
+
 
 class TestLLMIntegration:
     """Tests that OpenAI-compatible provider works through LLM-1 through LLM-5."""

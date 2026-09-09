@@ -18,7 +18,9 @@ GET  /api/v1/compute/workers/{worker_id}/health
 POST /api/v1/compute/workers/{worker_id}/shutdown
 GET  /api/v1/compute/audit
 POST /api/v1/compute/providers/openai-compatible/test
+POST /api/v1/compute/providers/openai-compatible/configure
 GET  /api/v1/compute/providers/openai-compatible/status
+POST /api/v1/compute/providers/openai-compatible/infer
 
 NO_DEPLOYMENT_SIGNAL. No predictions. No trading signals.
 """
