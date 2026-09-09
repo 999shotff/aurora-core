@@ -17,11 +17,16 @@ import {
   setComputeMode,
   getRuntimeHealth,
   listRuntimes,
+  getOpenAICompatibleStatus,
+  testOpenAICompatible,
+  configureOpenAICompatible,
   type ComputeStatus,
   type ComputeProviderInfo,
   type ComputeMode,
   type RuntimeInfo,
   type RuntimeHealth,
+  type OpenAICompatibleStatus,
+  type OpenAICompatibleTestResult,
 } from '../services/compute';
 
 const STATUS_COLORS: Record<string, string> = {
@@ -262,16 +267,28 @@ export const ComputePage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [toggling, setToggling] = useState(false);
 
+  // OpenAI-Compatible provider state
+  const [oaiStatus, setOaiStatus] = useState<OpenAICompatibleStatus | null>(null);
+  const [oaiBaseUrl, setOaiBaseUrl] = useState('');
+  const [oaiApiKey, setOaiApiKey] = useState('');
+  const [oaiModel, setOaiModel] = useState('');
+  const [oaiProviderName, setOaiProviderName] = useState('My Remote Model');
+  const [oaiTesting, setOaiTesting] = useState(false);
+  const [oaiSaving, setOaiSaving] = useState(false);
+  const [oaiTestResult, setOaiTestResult] = useState<OpenAICompatibleTestResult | null>(null);
+
   const fetchStatus = useCallback(async () => {
     try {
-      const [s, rh, rt] = await Promise.all([
+      const [s, rh, rt, oai] = await Promise.all([
         getComputeStatus(),
         getRuntimeHealth().catch(() => null),
         listRuntimes().catch(() => ({ runtimes: [], count: 0 })),
+        getOpenAICompatibleStatus().catch(() => null),
       ]);
       setStatus(s);
       setRuntimeHealth(rh);
       setRuntimes(rt.runtimes);
+      setOaiStatus(oai);
       setError(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to fetch compute status');
@@ -310,6 +327,61 @@ export const ComputePage: React.FC = () => {
       setError(e instanceof Error ? e.message : 'Mode change failed');
     }
   }, []);
+
+  const handleOaiTest = useCallback(async () => {
+    if (!oaiBaseUrl || !oaiApiKey || !oaiModel) {
+      setError('Please fill in Base URL, API Key, and Model');
+      return;
+    }
+    setOaiTesting(true);
+    setOaiTestResult(null);
+    try {
+      const result = await testOpenAICompatible({
+        base_url: oaiBaseUrl,
+        api_key: oaiApiKey,
+        model: oaiModel,
+      });
+      setOaiTestResult(result);
+      if (result.status === 'CONNECTED') {
+        emit('compute', `OpenAI-compatible connected: ${result.latency_ms}ms`, 'live');
+      }
+    } catch (e) {
+      setOaiTestResult({
+        status: 'ERROR',
+        provider: 'openai-compatible',
+        base_url: oaiBaseUrl,
+        model: oaiModel,
+        latency_ms: 0,
+        message: e instanceof Error ? e.message : 'Test failed',
+      });
+    } finally {
+      setOaiTesting(false);
+    }
+  }, [oaiBaseUrl, oaiApiKey, oaiModel]);
+
+  const handleOaiSave = useCallback(async () => {
+    if (!oaiBaseUrl || !oaiApiKey || !oaiModel) {
+      setError('Please fill in Base URL, API Key, and Model');
+      return;
+    }
+    setOaiSaving(true);
+    try {
+      await configureOpenAICompatible({
+        base_url: oaiBaseUrl,
+        api_key: oaiApiKey,
+        model: oaiModel,
+        provider_name: oaiProviderName,
+      });
+      const newStatus = await getOpenAICompatibleStatus();
+      setOaiStatus(newStatus);
+      emit('compute', 'OpenAI-compatible provider configured', 'live');
+      setOaiApiKey(''); // Clear from UI after saving
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Save failed');
+    } finally {
+      setOaiSaving(false);
+    }
+  }, [oaiBaseUrl, oaiApiKey, oaiModel, oaiProviderName]);
 
   if (loading) return <LoadingState label="Loading compute fabric..." />;
   if (error && !status) return <EmptyState message={error} />;
@@ -400,6 +472,174 @@ export const ComputePage: React.FC = () => {
           ))}
         </div>
       </div>
+
+      {/* OpenAI-Compatible Remote Provider */}
+      <GlassPanel>
+        <div style={{ padding: 14 }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <StatusDot status={oaiStatus?.status === 'CONFIGURED' ? 'READY' : 'NOT_CONFIGURED'} />
+              <span style={{ fontSize: 14, fontWeight: 600, color: 'var(--aur-ink)' }}>OPENAI-COMPATIBLE</span>
+            </div>
+            <span style={{
+              fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 6,
+              background: oaiStatus?.status === 'CONFIGURED' ? 'var(--aur-positive)' : 'var(--aur-ink-dim)',
+              color: '#000', textTransform: 'uppercase',
+            }}>
+              {oaiStatus?.status === 'CONFIGURED' ? 'CONNECTED' : 'NOT CONFIGURED'}
+            </span>
+          </div>
+
+          {/* Status info */}
+          {oaiStatus?.status === 'CONFIGURED' && (
+            <div style={{
+              padding: '8px 10px', background: 'var(--aur-bg-elevated)', borderRadius: 6,
+              border: '1px solid var(--aur-border)', marginBottom: 10,
+            }}>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--aur-accent)', textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 4 }}>
+                Remote API
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 4 }}>
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Model: <span style={{ color: 'var(--aur-ink)', fontWeight: 600 }}>{oaiStatus.model}</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Host: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{oaiStatus.base_url}</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Execution: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>REMOTE</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  GPU: <span style={{ color: 'var(--aur-positive)', fontWeight: 500 }}>NOT REQUIRED</span>
+                </div>
+                <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                  Worker: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>NOT REQUIRED</span>
+                </div>
+                {oaiStatus.api_key_redacted && (
+                  <div style={{ fontSize: 11, color: 'var(--aur-ink-dim)' }}>
+                    Key: <span style={{ color: 'var(--aur-ink)', fontWeight: 500 }}>{oaiStatus.api_key_redacted}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Configuration form */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--aur-ink-dim)', textTransform: 'uppercase', display: 'block', marginBottom: 2 }}>
+                Provider Name
+              </label>
+              <input
+                type="text"
+                value={oaiProviderName}
+                onChange={e => setOaiProviderName(e.target.value)}
+                placeholder="My Remote Model"
+                style={{
+                  width: '100%', padding: '6px 10px', borderRadius: 6,
+                  border: '1px solid var(--aur-border)', background: 'var(--aur-bg-elevated)',
+                  color: 'var(--aur-ink)', fontSize: 12, boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--aur-ink-dim)', textTransform: 'uppercase', display: 'block', marginBottom: 2 }}>
+                Base URL
+              </label>
+              <input
+                type="url"
+                value={oaiBaseUrl}
+                onChange={e => setOaiBaseUrl(e.target.value)}
+                placeholder="https://example.com/v1"
+                style={{
+                  width: '100%', padding: '6px 10px', borderRadius: 6,
+                  border: '1px solid var(--aur-border)', background: 'var(--aur-bg-elevated)',
+                  color: 'var(--aur-ink)', fontSize: 12, boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--aur-ink-dim)', textTransform: 'uppercase', display: 'block', marginBottom: 2 }}>
+                API Key
+              </label>
+              <input
+                type="password"
+                value={oaiApiKey}
+                onChange={e => setOaiApiKey(e.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+                style={{
+                  width: '100%', padding: '6px 10px', borderRadius: 6,
+                  border: '1px solid var(--aur-border)', background: 'var(--aur-bg-elevated)',
+                  color: 'var(--aur-ink)', fontSize: 12, boxSizing: 'border-box',
+                }}
+              />
+            </div>
+            <div>
+              <label style={{ fontSize: 10, color: 'var(--aur-ink-dim)', textTransform: 'uppercase', display: 'block', marginBottom: 2 }}>
+                Model
+              </label>
+              <input
+                type="text"
+                value={oaiModel}
+                onChange={e => setOaiModel(e.target.value)}
+                placeholder="model-name"
+                style={{
+                  width: '100%', padding: '6px 10px', borderRadius: 6,
+                  border: '1px solid var(--aur-border)', background: 'var(--aur-bg-elevated)',
+                  color: 'var(--aur-ink)', fontSize: 12, boxSizing: 'border-box',
+                }}
+              />
+            </div>
+
+            {/* Test result */}
+            {oaiTestResult && (
+              <div style={{
+                padding: '8px 10px', borderRadius: 6,
+                background: oaiTestResult.status === 'CONNECTED' ? 'rgba(34,197,94,0.1)' : 'rgba(248,113,113,0.1)',
+                border: `1px solid ${oaiTestResult.status === 'CONNECTED' ? 'var(--aur-positive)' : 'var(--aur-negative)'}`,
+              }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: oaiTestResult.status === 'CONNECTED' ? 'var(--aur-positive)' : 'var(--aur-negative)' }}>
+                  {oaiTestResult.status}: {oaiTestResult.message}
+                </div>
+                {oaiTestResult.latency_ms > 0 && (
+                  <div style={{ fontSize: 10, color: 'var(--aur-ink-dim)', marginTop: 2 }}>
+                    Latency: {oaiTestResult.latency_ms}ms
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Action buttons */}
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button
+                onClick={handleOaiTest}
+                disabled={oaiTesting || !oaiBaseUrl || !oaiApiKey || !oaiModel}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, border: '1px solid var(--aur-border)',
+                  background: 'transparent', color: 'var(--aur-ink-dim)',
+                  fontSize: 12, fontWeight: 600, cursor: oaiTesting ? 'wait' : 'pointer',
+                  opacity: oaiTesting || !oaiBaseUrl || !oaiApiKey || !oaiModel ? 0.5 : 1,
+                }}
+              >
+                {oaiTesting ? 'Testing...' : 'Test Connection'}
+              </button>
+              <button
+                onClick={handleOaiSave}
+                disabled={oaiSaving || !oaiBaseUrl || !oaiApiKey || !oaiModel}
+                style={{
+                  padding: '8px 16px', borderRadius: 8, border: 'none',
+                  background: 'var(--aur-accent)', color: '#fff',
+                  fontSize: 12, fontWeight: 600, cursor: oaiSaving ? 'wait' : 'pointer',
+                  opacity: oaiSaving || !oaiBaseUrl || !oaiApiKey || !oaiModel ? 0.5 : 1,
+                }}
+              >
+                {oaiSaving ? 'Saving...' : 'Save Configuration'}
+              </button>
+            </div>
+          </div>
+        </div>
+      </GlassPanel>
 
       {/* Runtime Status */}
       <GlassPanel>

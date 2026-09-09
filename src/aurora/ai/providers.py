@@ -153,20 +153,83 @@ class StubProvider(LLMProvider):
 # ============================================================
 
 
+def _redact_api_key(key: str) -> str:
+    """Redact API key for safe display. Never expose full key."""
+    if not key or len(key) < 8:
+        return "****"
+    return f"{key[:4]}{'*' * (len(key) - 8)}{key[-4:]}"
+
+
+def _validate_base_url(url: str) -> str:
+    """Validate and normalize base URL. Rejects dangerous schemes."""
+    from urllib.parse import urlparse
+    url = url.strip().rstrip("/")
+    parsed = urlparse(url)
+    if parsed.scheme not in ("https", "http"):
+        raise ValueError(f"Invalid URL scheme: {parsed.scheme!r}. Only https/http allowed.")
+    if not parsed.hostname:
+        raise ValueError("URL must have a hostname.")
+    # Allow localhost for development
+    allowed_hosts = {"localhost", "127.0.0.1", "::1"}
+    if parsed.hostname not in allowed_hosts and parsed.scheme != "https":
+        raise ValueError(
+            f"Non-HTTPS URL for host {parsed.hostname!r} is not allowed. "
+            "Use HTTPS or localhost for development."
+        )
+    # Reject URLs with credentials embedded
+    if parsed.username or parsed.password:
+        raise ValueError("URL must not contain embedded credentials.")
+    return url
+
+
+def _hostname_only(url: str) -> str:
+    """Extract hostname only for provenance (no secrets)."""
+    from urllib.parse import urlparse
+    parsed = urlparse(url)
+    return parsed.hostname or url
+
+
 class OpenAICompatibleProvider(LLMProvider):
-    """Adapter for OpenAI-compatible APIs (OpenAI, Anthropic via proxy, local servers)."""
+    """Adapter for OpenAI-compatible APIs (OpenAI, Anthropic via proxy, local servers).
+
+    Configuration:
+        AURORA_LLM_PROVIDER=openai-compatible
+        AURORA_OPENAI_COMPATIBLE_BASE_URL=https://example.com/v1
+        AURORA_OPENAI_COMPATIBLE_API_KEY=<secret>
+        AURORA_OPENAI_COMPATIBLE_MODEL=model-name
+
+    Also supports generic env vars:
+        AURORA_LLM_API_KEY, AURORA_LLM_BASE_URL, AURORA_LLM_MODEL
+
+    Security:
+        - API key is never exposed in responses, logs, or provenance.
+        - Base URL is validated (HTTPS required for non-localhost).
+        - Provenance records hostname only, never the full URL with credentials.
+    """
+
+    PROVIDER_NAME = "openai-compatible"
 
     def __init__(
         self,
         api_key: str,
         base_url: str = "https://api.openai.com/v1",
         model: str = "gpt-4o-mini",
-        provider_name: str = "openai",
+        provider_name: str = "openai-compatible",
+        timeout_seconds: float = 30.0,
+        max_output_tokens: int = 4096,
     ) -> None:
+        if not api_key:
+            raise ValueError("API key is required for OpenAI-compatible provider.")
         self._api_key = api_key
-        self._base_url = base_url.rstrip("/")
+        self._base_url = _validate_base_url(base_url)
         self._model = model
         self._provider_name = provider_name
+        self._timeout_seconds = timeout_seconds
+        self._max_output_tokens = max_output_tokens
+        self._last_latency_ms: float | None = None
+        self._last_request_id: str | None = None
+        self._total_inferences = 0
+        self._total_errors = 0
 
     @property
     def name(self) -> str:
@@ -174,14 +237,14 @@ class OpenAICompatibleProvider(LLMProvider):
 
     @property
     def is_available(self) -> bool:
-        return bool(self._api_key)
+        return bool(self._api_key and self._base_url and self._model)
 
     def capabilities(self) -> ProviderCapabilities:
         return ProviderCapabilities(
             name=self._provider_name,
             models=[self._model],
             max_context_tokens=128000,
-            max_output_tokens=4096,
+            max_output_tokens=self._max_output_tokens,
             supports_structured_output=True,
             requires_api_key=True,
         )
@@ -193,15 +256,23 @@ class OpenAICompatibleProvider(LLMProvider):
         temperature: float = 0.0,
         timeout: float = 30.0,
     ) -> str:
+        import time
         import urllib.request
         import urllib.error
 
-        payload = json.dumps({
+        actual_timeout = min(timeout, self._timeout_seconds)
+
+        # Conservative payload: only include fields the server is likely to support
+        payload_dict: dict[str, object] = {
             "model": self._model,
             "messages": messages,
-            "max_tokens": max_tokens,
-            "temperature": temperature,
-        }).encode("utf-8")
+            "max_tokens": min(max_tokens, self._max_output_tokens),
+        }
+        # Only include temperature if non-default (some servers reject it)
+        if temperature != 0.0:
+            payload_dict["temperature"] = temperature
+
+        payload = json.dumps(payload_dict).encode("utf-8")
 
         req = urllib.request.Request(
             f"{self._base_url}/chat/completions",
@@ -213,21 +284,209 @@ class OpenAICompatibleProvider(LLMProvider):
             method="POST",
         )
 
+        start_time = time.monotonic()
         try:
-            with urllib.request.urlopen(req, timeout=timeout) as resp:
+            with urllib.request.urlopen(req, timeout=actual_timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
+                elapsed_ms = (time.monotonic() - start_time) * 1000
+                self._last_latency_ms = elapsed_ms
+                self._last_request_id = data.get("id")
+                self._total_inferences += 1
+
                 choices = data.get("choices", [])
                 if not choices:
                     raise LLMUnavailable("Empty response from provider")
                 return choices[0].get("message", {}).get("content", "")
         except urllib.error.HTTPError as exc:
+            self._total_errors += 1
+            body = ""
+            try:
+                body = exc.read().decode("utf-8", errors="replace")[:500]
+            except Exception:
+                pass
+            if exc.code == 401:
+                raise LLMUnavailable(
+                    "AUTHENTICATION_ERROR: Invalid or missing API key"
+                ) from exc
+            if exc.code == 404:
+                raise LLMUnavailable(
+                    f"MODEL_NOT_FOUND: Model '{self._model}' not found at {self._base_url}"
+                ) from exc
             if exc.code == 429:
-                raise LLMTimeout(timeout) from exc
-            raise LLMUnavailable(f"HTTP {exc.code}: {exc.reason}") from exc
+                raise LLMTimeout(actual_timeout) from exc
+            if exc.code == 400:
+                raise LLMUnavailable(f"INVALID_REQUEST: HTTP {exc.code} — {body}") from exc
+            raise LLMUnavailable(f"PROVIDER_ERROR: HTTP {exc.code}: {exc.reason}") from exc
         except urllib.error.URLError as exc:
-            raise LLMUnavailable(f"Connection failed: {exc.reason}") from exc
+            self._total_errors += 1
+            raise LLMUnavailable(f"REMOTE_UNAVAILABLE: {exc.reason}") from exc
         except TimeoutError:
-            raise LLMTimeout(timeout)
+            self._total_errors += 1
+            raise LLMTimeout(actual_timeout)
+
+    def test_connection(self) -> dict:
+        """Test connectivity to the remote API. Returns safe metadata only."""
+        import time
+        import urllib.request
+        import urllib.error
+
+        start = time.monotonic()
+        try:
+            req = urllib.request.Request(
+                f"{self._base_url}/models",
+                headers={
+                    "Authorization": f"Bearer {self._api_key}",
+                },
+                method="GET",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                elapsed_ms = (time.monotonic() - start) * 1000
+                data = json.loads(resp.read().decode("utf-8"))
+                models = [m.get("id", "") for m in data.get("data", [])]
+                return {
+                    "status": "CONNECTED",
+                    "provider": self._provider_name,
+                    "base_url": _hostname_only(self._base_url),
+                    "model": self._model,
+                    "latency_ms": round(elapsed_ms, 1),
+                    "available_models": models[:20] if models else [],
+                    "message": "Connection successful",
+                }
+        except urllib.error.HTTPError as exc:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            if exc.code == 401:
+                return {
+                    "status": "AUTHENTICATION_ERROR",
+                    "provider": self._provider_name,
+                    "base_url": _hostname_only(self._base_url),
+                    "model": self._model,
+                    "latency_ms": round(elapsed_ms, 1),
+                    "message": "Invalid or missing API key",
+                }
+            if exc.code == 404:
+                # /models endpoint not available, try a minimal generate
+                return self._test_with_generate(start)
+            return {
+                "status": "ERROR",
+                "provider": self._provider_name,
+                "base_url": _hostname_only(self._base_url),
+                "model": self._model,
+                "latency_ms": round(elapsed_ms, 1),
+                "message": f"HTTP {exc.code}: {exc.reason}",
+            }
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            return {
+                "status": "UNREACHABLE",
+                "provider": self._provider_name,
+                "base_url": _hostname_only(self._base_url),
+                "model": self._model,
+                "latency_ms": round(elapsed_ms, 1),
+                "message": f"Connection failed: {exc}",
+            }
+
+    def _test_with_generate(self, start: float) -> dict:
+        """Fallback test using a minimal generate request."""
+        import urllib.request
+        import urllib.error
+
+        try:
+            payload = json.dumps({
+                "model": self._model,
+                "messages": [{"role": "user", "content": "hi"}],
+                "max_tokens": 1,
+            }).encode("utf-8")
+            req = urllib.request.Request(
+                f"{self._base_url}/chat/completions",
+                data=payload,
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {self._api_key}",
+                },
+                method="POST",
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                elapsed_ms = (time.monotonic() - start) * 1000
+                data = json.loads(resp.read().decode("utf-8"))
+                return {
+                    "status": "CONNECTED",
+                    "provider": self._provider_name,
+                    "base_url": _hostname_only(self._base_url),
+                    "model": self._model,
+                    "latency_ms": round(elapsed_ms, 1),
+                    "message": "Connection successful (via generate)",
+                }
+        except urllib.error.HTTPError as exc:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            if exc.code == 401:
+                return {
+                    "status": "AUTHENTICATION_ERROR",
+                    "provider": self._provider_name,
+                    "base_url": _hostname_only(self._base_url),
+                    "model": self._model,
+                    "latency_ms": round(elapsed_ms, 1),
+                    "message": "Invalid or missing API key",
+                }
+            if exc.code == 404:
+                return {
+                    "status": "MODEL_UNAVAILABLE",
+                    "provider": self._provider_name,
+                    "base_url": _hostname_only(self._base_url),
+                    "model": self._model,
+                    "latency_ms": round(elapsed_ms, 1),
+                    "message": f"Model '{self._model}' not found",
+                }
+            return {
+                "status": "ERROR",
+                "provider": self._provider_name,
+                "base_url": _hostname_only(self._base_url),
+                "model": self._model,
+                "latency_ms": round(elapsed_ms, 1),
+                "message": f"HTTP {exc.code}: {exc.reason}",
+            }
+        except (urllib.error.URLError, TimeoutError, OSError) as exc:
+            elapsed_ms = (time.monotonic() - start) * 1000
+            return {
+                "status": "UNREACHABLE",
+                "provider": self._provider_name,
+                "base_url": _hostname_only(self._base_url),
+                "model": self._model,
+                "latency_ms": round(elapsed_ms, 1),
+                "message": f"Connection failed: {exc}",
+            }
+
+    def health_check(self) -> dict:
+        """Health check with safe metadata. Never exposes API key."""
+        return {
+            "provider": self._provider_name,
+            "available": self.is_available,
+            "base_url": _hostname_only(self._base_url),
+            "model": self._model,
+            "execution": "REMOTE_API",
+            "gpu_required": False,
+            "total_inferences": self._total_inferences,
+            "total_errors": self._total_errors,
+            "last_latency_ms": self._last_latency_ms,
+            "api_key_configured": bool(self._api_key),
+            "api_key_redacted": _redact_api_key(self._api_key),
+        }
+
+    def get_provenance(self, prompt: str, output: str) -> dict:
+        """Generate provenance record for an inference. Never includes API key."""
+        import hashlib
+        prompt_hash = hashlib.sha256(prompt.encode()).hexdigest()[:16]
+        output_hash = hashlib.sha256(output.encode()).hexdigest()[:16]
+        return {
+            "provider": self._provider_name,
+            "model": self._model,
+            "base_url_hostname": _hostname_only(self._base_url),
+            "prompt_hash": prompt_hash,
+            "output_hash": output_hash,
+            "latency_ms": self._last_latency_ms,
+            "request_id": self._last_request_id,
+            "runtime": "remote-api",
+            "gpu_required": False,
+        }
 
 
 # ============================================================
@@ -455,9 +714,13 @@ def create_provider_registry() -> ProviderRegistry:
 
     Reads:
         AURORA_LLM_PROVIDER — provider name (default: stub)
-        AURORA_LLM_API_KEY — API key for external providers
-        AURORA_LLM_BASE_URL — base URL for OpenAI-compatible APIs
-        AURORA_LLM_MODEL — model name
+        AURORA_LLM_API_KEY — API key for external providers (generic)
+        AURORA_LLM_BASE_URL — base URL for OpenAI-compatible APIs (generic)
+        AURORA_LLM_MODEL — model name (generic)
+
+        AURORA_OPENAI_COMPATIBLE_BASE_URL — base URL (provider-specific)
+        AURORA_OPENAI_COMPATIBLE_API_KEY — API key (provider-specific)
+        AURORA_OPENAI_COMPATIBLE_MODEL — model name (provider-specific)
     """
     registry = ProviderRegistry()
 
@@ -465,9 +728,6 @@ def create_provider_registry() -> ProviderRegistry:
     registry.register(stub, default=True)
 
     provider_name = os.environ.get("AURORA_LLM_PROVIDER", "stub")
-    api_key = os.environ.get("AURORA_LLM_API_KEY", "")
-    base_url = os.environ.get("AURORA_LLM_BASE_URL", "https://api.openai.com/v1")
-    model = os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini")
 
     if provider_name == "ollama":
         if _runtime_manager_ref is None:
@@ -477,13 +737,39 @@ def create_provider_registry() -> ProviderRegistry:
             rm = _runtime_manager_ref
         provider = OllamaProvider(rm)
         registry.register(provider, default=True)
-    elif provider_name != "stub" and api_key:
-        provider = OpenAICompatibleProvider(
-            api_key=api_key,
-            base_url=base_url,
-            model=model,
-            provider_name=provider_name,
+    elif provider_name == "openai-compatible":
+        # Provider-specific env vars take precedence
+        api_key = os.environ.get(
+            "AURORA_OPENAI_COMPATIBLE_API_KEY",
+            os.environ.get("AURORA_LLM_API_KEY", ""),
         )
-        registry.register(provider, default=True)
+        base_url = os.environ.get(
+            "AURORA_OPENAI_COMPATIBLE_BASE_URL",
+            os.environ.get("AURORA_LLM_BASE_URL", "https://api.openai.com/v1"),
+        )
+        model = os.environ.get(
+            "AURORA_OPENAI_COMPATIBLE_MODEL",
+            os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini"),
+        )
+        if api_key:
+            provider = OpenAICompatibleProvider(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                provider_name="openai-compatible",
+            )
+            registry.register(provider, default=True)
+    elif provider_name != "stub":
+        api_key = os.environ.get("AURORA_LLM_API_KEY", "")
+        base_url = os.environ.get("AURORA_LLM_BASE_URL", "https://api.openai.com/v1")
+        model = os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini")
+        if api_key:
+            provider = OpenAICompatibleProvider(
+                api_key=api_key,
+                base_url=base_url,
+                model=model,
+                provider_name=provider_name,
+            )
+            registry.register(provider, default=True)
 
     return registry

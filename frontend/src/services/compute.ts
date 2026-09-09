@@ -367,3 +367,95 @@ export async function getRegistryModels(): Promise<ModelConfig[]> {
   if (!resp.ok) throw new Error(`Get registry models failed: ${resp.status}`);
   return resp.json();
 }
+
+// ============================================================
+// OpenAI-Compatible Remote Provider API
+// ============================================================
+
+export interface OpenAICompatibleTestResult {
+  status: 'CONNECTED' | 'AUTHENTICATION_ERROR' | 'MODEL_UNAVAILABLE' | 'UNREACHABLE' | 'ERROR';
+  provider: string;
+  base_url: string;
+  model: string;
+  latency_ms: number;
+  message: string;
+  available_models?: string[];
+}
+
+export interface OpenAICompatibleConfigResult {
+  status: 'CONFIGURED' | 'ERROR';
+  provider: string;
+  base_url: string;
+  model: string;
+  execution: string;
+  gpu_required: boolean;
+}
+
+export interface OpenAICompatibleStatus {
+  provider: string;
+  status: 'NOT_CONFIGURED' | 'CONFIGURED' | 'CONNECTED';
+  base_url?: string;
+  model?: string;
+  execution: string;
+  gpu_required: boolean;
+  api_key_configured?: boolean;
+  api_key_redacted?: string;
+}
+
+export interface OpenAICompatibleInferResult {
+  status: 'COMPLETED' | 'AUTHENTICATION_ERROR' | 'MODEL_NOT_FOUND' | 'REMOTE_UNAVAILABLE' | 'ERROR';
+  output?: string;
+  provenance?: Record<string, unknown>;
+  error?: string;
+}
+
+export async function testOpenAICompatible(params: {
+  base_url: string;
+  api_key: string;
+  model: string;
+  provider_name?: string;
+}): Promise<OpenAICompatibleTestResult> {
+  const resp = await fetch(`${API_BASE}/api/v1/compute/providers/openai-compatible/test`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!resp.ok) throw new Error(`Test connection failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function configureOpenAICompatible(params: {
+  base_url: string;
+  api_key: string;
+  model: string;
+  provider_name?: string;
+}): Promise<OpenAICompatibleConfigResult> {
+  const resp = await fetch(`${API_BASE}/api/v1/compute/providers/openai-compatible/configure`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!resp.ok) throw new Error(`Configure failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function getOpenAICompatibleStatus(): Promise<OpenAICompatibleStatus> {
+  const resp = await fetch(`${API_BASE}/api/v1/compute/providers/openai-compatible/status`);
+  if (!resp.ok) throw new Error(`Status failed: ${resp.status}`);
+  return resp.json();
+}
+
+export async function inferOpenAICompatible(params: {
+  messages: Array<{ role: string; content: string }>;
+  max_tokens?: number;
+  temperature?: number;
+  timeout?: number;
+}): Promise<OpenAICompatibleInferResult> {
+  const resp = await fetch(`${API_BASE}/api/v1/compute/providers/openai-compatible/infer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(params),
+  });
+  if (!resp.ok) throw new Error(`Inference failed: ${resp.status}`);
+  return resp.json();
+}
