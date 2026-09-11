@@ -185,6 +185,11 @@ from aurora.terminal.api import router as terminal_router
 
 app.include_router(terminal_router)
 
+# Data Fabric: Mount news/macro/research data provider routes
+from aurora.data.api import router as data_fabric_router
+
+app.include_router(data_fabric_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),

@@ -155,21 +155,71 @@ def terminal_status() -> dict[str, Any]:
             "gpu_required": False,
         })
 
-    # News / Macro / Research — show DATA_UNAVAILABLE until real providers connected
-    providers.append({
-        "category": "NEWS",
-        "name": "no-provider",
-        "detail": "DATA_UNAVAILABLE",
-        "status": "unavailable",
-        "gpu_required": False,
-    })
-    providers.append({
-        "category": "MACRO",
-        "name": "no-provider",
-        "detail": "DATA_UNAVAILABLE",
-        "status": "unavailable",
-        "gpu_required": False,
-    })
+    # News — real provider status from data fabric
+    try:
+        from aurora.data.registry import get_registry
+        reg = get_registry()
+        news_status = reg.news.status()
+        providers.append({
+            "category": "NEWS",
+            "name": news_status.name,
+            "detail": news_status.state.value,
+            "status": "ready" if news_status.state.value == "READY" else
+                       "degraded" if news_status.state.value == "DEGRADED" else "unavailable",
+            "gpu_required": False,
+        })
+    except Exception:
+        providers.append({
+            "category": "NEWS",
+            "name": "unavailable",
+            "detail": "UNAVAILABLE",
+            "status": "unavailable",
+            "gpu_required": False,
+        })
+
+    # Macro — real provider status from data fabric
+    try:
+        from aurora.data.registry import get_registry
+        reg = get_registry()
+        macro_status = reg.macro.status()
+        providers.append({
+            "category": "MACRO",
+            "name": macro_status.name,
+            "detail": macro_status.state.value,
+            "status": "ready" if macro_status.state.value == "READY" else
+                       "degraded" if macro_status.state.value == "DEGRADED" else "unavailable",
+            "gpu_required": False,
+        })
+    except Exception:
+        providers.append({
+            "category": "MACRO",
+            "name": "unavailable",
+            "detail": "UNAVAILABLE",
+            "status": "unavailable",
+            "gpu_required": False,
+        })
+
+    # Research — real provider status from data fabric
+    try:
+        from aurora.data.registry import get_registry
+        reg = get_registry()
+        research_status = reg.research.status()
+        providers.append({
+            "category": "RESEARCH",
+            "name": research_status.name,
+            "detail": research_status.state.value,
+            "status": "ready" if research_status.state.value == "READY" else
+                       "degraded" if research_status.state.value == "DEGRADED" else "unavailable",
+            "gpu_required": False,
+        })
+    except Exception:
+        providers.append({
+            "category": "RESEARCH",
+            "name": "unavailable",
+            "detail": "UNAVAILABLE",
+            "status": "unavailable",
+            "gpu_required": False,
+        })
 
     return {
         "status": "ok",

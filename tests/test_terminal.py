@@ -57,7 +57,8 @@ class TestTerminalStatus:
         news = [p for p in data["providers"] if p["category"] == "NEWS"]
         assert len(news) == 1
         assert news[0]["status"] == "unavailable"
-        assert news[0]["detail"] == "DATA_UNAVAILABLE"
+        # Now uses real provider status: NOT_CONFIGURED instead of hardcoded DATA_UNAVAILABLE
+        assert news[0]["detail"] in ["NOT_CONFIGURED", "DATA_UNAVAILABLE"]
 
     def test_status_macro_unavailable(self, client):
         response = client.get("/api/v1/terminal/status")
@@ -65,7 +66,8 @@ class TestTerminalStatus:
         macro = [p for p in data["providers"] if p["category"] == "MACRO"]
         assert len(macro) == 1
         assert macro[0]["status"] == "unavailable"
-        assert macro[0]["detail"] == "DATA_UNAVAILABLE"
+        # Now uses real provider status: NOT_CONFIGURED instead of hardcoded DATA_UNAVAILABLE
+        assert macro[0]["detail"] in ["NOT_CONFIGURED", "DATA_UNAVAILABLE"]
 
 
 # ── Terminal Overview ─────────────────────────────────────────────────────────
