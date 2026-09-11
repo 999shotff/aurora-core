@@ -739,17 +739,22 @@ def create_provider_registry() -> ProviderRegistry:
         registry.register(provider, default=True)
     elif provider_name == "openai-compatible":
         # Provider-specific env vars take precedence
-        api_key = os.environ.get(
-            "AURORA_OPENAI_COMPATIBLE_API_KEY",
-            os.environ.get("AURORA_LLM_API_KEY", ""),
+        # Use `or default` to treat empty strings as unset (Render sets some
+        # env vars to "" which bypasses os.environ.get defaults)
+        api_key = (
+            os.environ.get("AURORA_OPENAI_COMPATIBLE_API_KEY")
+            or os.environ.get("AURORA_LLM_API_KEY")
+            or ""
         )
-        base_url = os.environ.get(
-            "AURORA_OPENAI_COMPATIBLE_BASE_URL",
-            os.environ.get("AURORA_LLM_BASE_URL", "https://api.openai.com/v1"),
+        base_url = (
+            os.environ.get("AURORA_OPENAI_COMPATIBLE_BASE_URL")
+            or os.environ.get("AURORA_LLM_BASE_URL")
+            or "https://api.openai.com/v1"
         )
-        model = os.environ.get(
-            "AURORA_OPENAI_COMPATIBLE_MODEL",
-            os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini"),
+        model = (
+            os.environ.get("AURORA_OPENAI_COMPATIBLE_MODEL")
+            or os.environ.get("AURORA_LLM_MODEL")
+            or "gpt-4o-mini"
         )
         if api_key:
             provider = OpenAICompatibleProvider(
@@ -767,9 +772,9 @@ def create_provider_registry() -> ProviderRegistry:
                 "Falling back to stub provider — no real inference will occur."
             )
     elif provider_name != "stub":
-        api_key = os.environ.get("AURORA_LLM_API_KEY", "")
-        base_url = os.environ.get("AURORA_LLM_BASE_URL", "https://api.openai.com/v1")
-        model = os.environ.get("AURORA_LLM_MODEL", "gpt-4o-mini")
+        api_key = os.environ.get("AURORA_LLM_API_KEY") or ""
+        base_url = os.environ.get("AURORA_LLM_BASE_URL") or "https://api.openai.com/v1"
+        model = os.environ.get("AURORA_LLM_MODEL") or "gpt-4o-mini"
         if api_key:
             provider = OpenAICompatibleProvider(
                 api_key=api_key,
