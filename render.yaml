@@ -22,3 +22,4 @@ services:
         value: 60
     healthCheckPath: /health
     autoDeploy: true
+    # Trigger redeploy to pick up NVIDIA env vars
