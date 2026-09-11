@@ -129,11 +129,14 @@ def reason_health() -> dict:
     """Health check for reasoning service."""
     service = _get_service()
     registry = service.provider_registry
+    default_provider = registry.get()
     return {
         "status": "healthy",
         "service": "aurora-reasoning",
         "version": "0.2.0",
         "research_conclusion": "NO_DEPLOYMENT_SIGNAL",
+        "default_provider": default_provider.name,
+        "real_provider_configured": service._real_provider_configured,
         "providers": registry.health_check(),
         "llm2_tools": len(service.tool_registry.names()),
         "evidence_nodes": len(service.evidence_graph._nodes),

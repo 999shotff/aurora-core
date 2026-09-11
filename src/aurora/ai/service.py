@@ -87,6 +87,14 @@ class ReasoningService:
     def __init__(self, registry: ProviderRegistry | None = None) -> None:
         self._registry = registry or create_provider_registry()
 
+        default_provider = self._registry.get()
+        self._real_provider_configured = default_provider.name != "stub"
+        logger.info(
+            "ReasoningService initialized: default_provider=%s real_provider=%s",
+            default_provider.name,
+            self._real_provider_configured,
+        )
+
         # LLM-2: Tool orchestration components
         self._tool_registry = ToolRegistry()
         self._tool_registry.register_many(MARKET_TOOLS + GEO_TOOLS + RESEARCH_TOOLS)

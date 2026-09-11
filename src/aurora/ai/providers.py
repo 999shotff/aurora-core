@@ -759,6 +759,13 @@ def create_provider_registry() -> ProviderRegistry:
                 provider_name="openai-compatible",
             )
             registry.register(provider, default=True)
+        else:
+            import logging
+            logging.getLogger("aurora.ai.providers").warning(
+                "AURORA_LLM_PROVIDER=openai-compatible but no API key found. "
+                "Set AURORA_OPENAI_COMPATIBLE_API_KEY or AURORA_LLM_API_KEY. "
+                "Falling back to stub provider — no real inference will occur."
+            )
     elif provider_name != "stub":
         api_key = os.environ.get("AURORA_LLM_API_KEY", "")
         base_url = os.environ.get("AURORA_LLM_BASE_URL", "https://api.openai.com/v1")
