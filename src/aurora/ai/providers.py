@@ -739,21 +739,21 @@ def create_provider_registry() -> ProviderRegistry:
         registry.register(provider, default=True)
     elif provider_name == "openai-compatible":
         # Provider-specific env vars take precedence
-        # Use `or default` to treat empty strings as unset (Render sets some
-        # env vars to "" which bypasses os.environ.get defaults)
+        # Use `or default` + strip() to treat empty/whitespace strings as unset
+        # (Render sometimes sets env vars to "" or " " which bypasses
+        # os.environ.get defaults and causes Invalid URL scheme errors)
         api_key = (
-            os.environ.get("AURORA_OPENAI_COMPATIBLE_API_KEY")
-            or os.environ.get("AURORA_LLM_API_KEY")
-            or ""
+            (os.environ.get("AURORA_OPENAI_COMPATIBLE_API_KEY") or "").strip()
+            or (os.environ.get("AURORA_LLM_API_KEY") or "").strip()
         )
         base_url = (
-            os.environ.get("AURORA_OPENAI_COMPATIBLE_BASE_URL")
-            or os.environ.get("AURORA_LLM_BASE_URL")
+            (os.environ.get("AURORA_OPENAI_COMPATIBLE_BASE_URL") or "").strip()
+            or (os.environ.get("AURORA_LLM_BASE_URL") or "").strip()
             or "https://api.openai.com/v1"
         )
         model = (
-            os.environ.get("AURORA_OPENAI_COMPATIBLE_MODEL")
-            or os.environ.get("AURORA_LLM_MODEL")
+            (os.environ.get("AURORA_OPENAI_COMPATIBLE_MODEL") or "").strip()
+            or (os.environ.get("AURORA_LLM_MODEL") or "").strip()
             or "gpt-4o-mini"
         )
         if api_key:

@@ -167,6 +167,12 @@ def reason_health() -> dict:
     except Exception as exc:
         logger.error("Reasoning health check failed: %s", exc)
         safe_error = _redact_error(str(exc))
+        import os as _os
+        _env_debug = {
+            "AURORA_LLM_PROVIDER": _redact_error(_os.environ.get("AURORA_LLM_PROVIDER", "")),
+            "has_api_key": bool(_os.environ.get("AURORA_OPENAI_COMPATIBLE_API_KEY") or _os.environ.get("AURORA_LLM_API_KEY")),
+            "base_url_len": len(_os.environ.get("AURORA_OPENAI_COMPATIBLE_BASE_URL") or _os.environ.get("AURORA_LLM_BASE_URL") or ""),
+        }
         return {
             "status": "degraded",
             "service": "aurora-reasoning",
@@ -175,6 +181,7 @@ def reason_health() -> dict:
             "default_provider": "unavailable",
             "real_provider_configured": False,
             "error": safe_error,
+            "env_debug": _env_debug,
             "providers": {},
             "llm2_tools": 0,
             "evidence_nodes": 0,
