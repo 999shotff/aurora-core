@@ -178,10 +178,13 @@ def reason_health() -> dict:
         logger.error("Reasoning health check failed: %s", exc)
         safe_error = _redact_error(str(exc))
         import os as _os
+        _raw_base = (_os.environ.get("AURORA_OPENAI_COMPATIBLE_BASE_URL") or _os.environ.get("AURORA_LLM_BASE_URL") or "").strip()
         _env_debug = {
             "AURORA_LLM_PROVIDER": _os.environ.get("AURORA_LLM_PROVIDER", ""),
-            "has_api_key": bool(_os.environ.get("AURORA_OPENAI_COMPATIBLE_API_KEY") or _os.environ.get("AURORA_LLM_API_KEY")),
-            "has_valid_base_url": _validate_url_env(_os.environ.get("AURORA_OPENAI_COMPATIBLE_BASE_URL") or _os.environ.get("AURORA_LLM_BASE_URL")),
+            "has_api_key": bool((_os.environ.get("AURORA_OPENAI_COMPATIBLE_API_KEY") or _os.environ.get("AURORA_LLM_API_KEY") or "").strip()),
+            "base_url_set": bool(_raw_base),
+            "base_url_valid": _validate_url_env(_raw_base) if _raw_base else False,
+            "base_url_looks_placeholder": _raw_base.startswith("<") if _raw_base else False,
         }
         return {
             "status": "degraded",
