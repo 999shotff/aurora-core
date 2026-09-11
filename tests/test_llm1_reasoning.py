@@ -1437,3 +1437,161 @@ class TestRealProviderIntegration:
         default = service.provider_registry.get()
         assert isinstance(default.name, str)
         assert service._real_provider_configured == (default.name != "stub")
+
+
+# ============================================================
+# Defensive Error Handling Tests (Render 500 prevention)
+# ============================================================
+
+
+class TestDefensiveErrorHandling:
+    """Regression tests: endpoints never crash the server."""
+
+    def test_reason_health_never_crashes(self):
+        from fastapi.testclient import TestClient
+        from aurora.ai.api import reason_app
+
+        client = TestClient(reason_app, raise_server_exceptions=False)
+        resp = client.get("/api/v1/reason/health")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data["status"] in ("healthy", "degraded")
+        assert "service" in data
+
+    def test_reason_health_with_broken_service(self):
+        import aurora.ai.api as api_module
+        from fastapi.testclient import TestClient
+        from aurora.ai.api import reason_app
+
+        original = api_module._service
+        original_error = api_module._service_error
+        api_module._service = None
+        api_module._service_error = "Test: simulated init failure"
+
+        try:
+            client = TestClient(reason_app, raise_server_exceptions=False)
+            resp = client.get("/api/v1/reason/health")
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "degraded"
+            assert "error" in data
+            assert "Test: simulated init failure" in data["error"]
+        finally:
+            api_module._service = original
+            api_module._service_error = original_error
+
+    def test_reason_endpoint_with_broken_service(self):
+        import aurora.ai.api as api_module
+        from fastapi.testclient import TestClient
+        from aurora.ai.api import reason_app
+
+        original = api_module._service
+        original_error = api_module._service_error
+        api_module._service = None
+        api_module._service_error = "Test: simulated init failure"
+
+        try:
+            client = TestClient(reason_app, raise_server_exceptions=False)
+            resp = client.post(
+                "/api/v1/reason",
+                json={"query": "test", "evidence": []},
+            )
+            assert resp.status_code == 200
+            data = resp.json()
+            assert data["status"] == "ERROR"
+            assert "unavailable" in data["provider"].lower() or data["provider"] == "unavailable"
+            assert data["abstention_reason"] is not None
+        finally:
+            api_module._service = original
+            api_module._service_error = original_error
+
+    def test_reason_tools_never_crashes(self):
+        from fastapi.testclient import TestClient
+        from aurora.ai.api import reason_app
+
+        client = TestClient(reason_app, raise_server_exceptions=False)
+        resp = client.get("/api/v1/reason/tools")
+        assert resp.status_code == 200
+
+    def test_reason_evidence_graph_never_crashes(self):
+        from fastapi.testclient import TestClient
+        from aurora.ai.api import reason_app
+
+        client = TestClient(reason_app, raise_server_exceptions=False)
+        resp = client.get("/api/v1/reason/evidence-graph")
+        assert resp.status_code == 200
+
+    def test_reason_safety_log_never_crashes(self):
+        from fastapi.testclient import TestClient
+        from aurora.ai.api import reason_app
+
+        client = TestClient(reason_app, raise_server_exceptions=False)
+        resp = client.get("/api/v1/reason/safety-log")
+        assert resp.status_code == 200
+
+    def test_api_key_never_in_health_response(self):
+        import os
+        os.environ["AURORA_OPENAI_COMPATIBLE_API_KEY"] = "sk-super-secret-key-12345"
+        os.environ["AURORA_LLM_PROVIDER"] = "openai-compatible"
+
+        try:
+            from fastapi.testclient import TestClient
+            from aurora.ai.api import reason_app
+
+            client = TestClient(reason_app, raise_server_exceptions=False)
+            resp = client.get("/api/v1/reason/health")
+            assert resp.status_code == 200
+            text = resp.text
+            assert "sk-super-secret-key" not in text
+        finally:
+            os.environ.pop("AURORA_OPENAI_COMPATIBLE_API_KEY", None)
+            os.environ.pop("AURORA_LLM_PROVIDER", None)
+            import aurora.ai.api as api_module
+            api_module._service = None
+            api_module._service_error = None
+
+    def test_api_key_never_in_exception_response(self):
+        import aurora.ai.api as api_module
+
+        original = api_module._service
+        original_error = api_module._service_error
+        api_module._service = None
+        api_module._service_error = "API key invalid sk-test-1234567890"
+
+        try:
+            from fastapi.testclient import TestClient
+            from aurora.ai.api import reason_app
+
+            client = TestClient(reason_app, raise_server_exceptions=False)
+            resp = client.get("/api/v1/reason/health")
+            assert resp.status_code == 200
+            data = resp.json()
+            if "error" in data:
+                assert "sk-test-1234567890" not in data["error"]
+        finally:
+            api_module._service = original
+            api_module._service_error = original_error
+
+    def test_service_init_failure_cached(self):
+        import aurora.ai.api as api_module
+
+        original = api_module._service
+        original_error = api_module._service_error
+        api_module._service = None
+        api_module._service_error = None
+
+        try:
+            api_module._service_error = "Persistent failure"
+            from fastapi.testclient import TestClient
+            from aurora.ai.api import reason_app
+
+            client = TestClient(reason_app, raise_server_exceptions=False)
+            resp1 = client.get("/api/v1/reason/health")
+            resp2 = client.get("/api/v1/reason/health")
+            assert resp1.status_code == 200
+            assert resp2.status_code == 200
+            assert resp1.json()["status"] == "degraded"
+            assert resp2.json()["status"] == "degraded"
+        finally:
+            api_module._service = original
+            api_module._service_error = original_error

@@ -28,14 +28,33 @@ from aurora.ai.service import ReasoningService
 
 logger = logging.getLogger("aurora.ai.api")
 
+
+def _redact_error(msg: str) -> str:
+    """Remove potential secrets from error messages before returning to clients."""
+    import re
+    msg = re.sub(r'sk-[A-Za-z0-9_-]{8,}', 'sk-****', msg)
+    msg = re.sub(r'Bearer\s+\S+', 'Bearer ****', msg)
+    msg = re.sub(r'api[_-]?key\s*[=:]\s*\S+', 'api_key=****', msg, flags=re.IGNORECASE)
+    return msg[:500]
+
+
 _service: ReasoningService | None = None
+_service_error: str | None = None
 
 
 def _get_service() -> ReasoningService:
-    global _service
-    if _service is None:
+    global _service, _service_error
+    if _service is not None:
+        return _service
+    if _service_error is not None:
+        raise RuntimeError(_service_error)
+    try:
         _service = ReasoningService()
-    return _service
+        return _service
+    except Exception as exc:
+        _service_error = str(exc)
+        logger.error("Failed to initialize ReasoningService: %s", exc)
+        raise
 
 
 # ── Request/Response Models ────────────────────────────────────────────────
@@ -126,21 +145,40 @@ reason_app = FastAPI(
 
 @reason_app.get("/api/v1/reason/health")
 def reason_health() -> dict:
-    """Health check for reasoning service."""
-    service = _get_service()
-    registry = service.provider_registry
-    default_provider = registry.get()
-    return {
-        "status": "healthy",
-        "service": "aurora-reasoning",
-        "version": "0.2.0",
-        "research_conclusion": "NO_DEPLOYMENT_SIGNAL",
-        "default_provider": default_provider.name,
-        "real_provider_configured": service._real_provider_configured,
-        "providers": registry.health_check(),
-        "llm2_tools": len(service.tool_registry.names()),
-        "evidence_nodes": len(service.evidence_graph._nodes),
-    }
+    """Health check for reasoning service.
+
+    Never crashes. Returns structured status even when provider is unavailable.
+    """
+    try:
+        service = _get_service()
+        registry = service.provider_registry
+        default_provider = registry.get()
+        return {
+            "status": "healthy",
+            "service": "aurora-reasoning",
+            "version": "0.2.0",
+            "research_conclusion": "NO_DEPLOYMENT_SIGNAL",
+            "default_provider": default_provider.name,
+            "real_provider_configured": service._real_provider_configured,
+            "providers": registry.health_check(),
+            "llm2_tools": len(service.tool_registry.names()),
+            "evidence_nodes": len(service.evidence_graph._nodes),
+        }
+    except Exception as exc:
+        logger.error("Reasoning health check failed: %s", exc)
+        safe_error = _redact_error(str(exc))
+        return {
+            "status": "degraded",
+            "service": "aurora-reasoning",
+            "version": "0.2.0",
+            "research_conclusion": "NO_DEPLOYMENT_SIGNAL",
+            "default_provider": "unavailable",
+            "real_provider_configured": False,
+            "error": safe_error,
+            "providers": {},
+            "llm2_tools": 0,
+            "evidence_nodes": 0,
+        }
 
 
 @reason_app.post("/api/v1/reason", response_model=ReasonAPIResponse)
@@ -149,10 +187,29 @@ def reason(body: ReasonAPIRequest) -> dict:
 
     The LLM is a reasoning/synthesis component.
     Deterministic engines are the source of truth for all numerical data.
+    Never crashes the server. Returns deterministic error if service unavailable.
     """
-    service = _get_service()
-
     request_id = f"req_{uuid.uuid4().hex[:12]}"
+
+    try:
+        service = _get_service()
+    except Exception as exc:
+        logger.error("Reasoning service unavailable: %s", exc)
+        return ReasonAPIResponse(
+            request_id=request_id,
+            status="ERROR",
+            answer="",
+            summary=f"Reasoning service unavailable: {exc}",
+            evidence_refs=[],
+            reasoning_points=[],
+            uncertainties=[str(exc)],
+            conflicts=[],
+            abstention_reason=str(exc),
+            provider="unavailable",
+            model="",
+            context_hash="",
+            grounding_score=0.0,
+        )
 
     try:
         domain = ReasoningDomain(body.domain) if body.domain in [d.value for d in ReasoningDomain] else ReasoningDomain.GENERAL
@@ -227,10 +284,32 @@ def reason_tool(body: ToolReasonRequest) -> dict:
 
     Tools gather evidence automatically. The LLM synthesizes findings.
     No trades are executed. No data is modified.
+    Never crashes the server.
     """
-    service = _get_service()
-
     request_id = f"req_{uuid.uuid4().hex[:12]}"
+
+    try:
+        service = _get_service()
+    except Exception as exc:
+        logger.error("Reasoning service unavailable for tool: %s", exc)
+        return ToolReasonResponse(
+            request_id=request_id,
+            status="ERROR",
+            answer="",
+            summary=f"Reasoning service unavailable: {exc}",
+            evidence_refs=[],
+            reasoning_points=[],
+            uncertainties=[str(exc)],
+            conflicts=[],
+            abstention_reason=str(exc),
+            provider="unavailable",
+            model="",
+            context_hash="",
+            grounding_score=0.0,
+            tools_executed=0,
+            evidence_nodes=0,
+            evidence_graph_summary="",
+        )
 
     try:
         domain_enum = ReasoningDomain(body.domain) if body.domain in [d.value for d in ReasoningDomain] else ReasoningDomain.GENERAL
@@ -286,8 +365,13 @@ def reason_workflow(body: WorkflowRequest) -> dict:
     """Execute a domain-specific workflow (LLM-2).
 
     Returns raw workflow results without LLM synthesis.
+    Never crashes the server.
     """
-    service = _get_service()
+    try:
+        service = _get_service()
+    except Exception as exc:
+        logger.error("Reasoning service unavailable for workflow: %s", exc)
+        return {"status": "error", "domain": body.domain, "error": str(exc)}
 
     try:
         result = service.execute_workflow(body.domain, **body.params)
@@ -300,7 +384,11 @@ def reason_workflow(body: WorkflowRequest) -> dict:
 @reason_app.get("/api/v1/reason/tools")
 def reason_tools() -> dict:
     """List all available tools (LLM-2)."""
-    service = _get_service()
+    try:
+        service = _get_service()
+    except Exception as exc:
+        logger.error("Reasoning service unavailable for tools: %s", exc)
+        return {"tools": [], "tool_count": 0, "error": str(exc)}
     return {
         "tools": service.list_tools(),
         "tool_count": len(service.tool_registry.names()),
@@ -310,14 +398,22 @@ def reason_tools() -> dict:
 @reason_app.get("/api/v1/reason/evidence-graph")
 def reason_evidence_graph() -> dict:
     """Get the current evidence graph (LLM-2)."""
-    service = _get_service()
+    try:
+        service = _get_service()
+    except Exception as exc:
+        logger.error("Reasoning service unavailable for evidence graph: %s", exc)
+        return {"nodes": [], "edges": [], "error": str(exc)}
     return service.get_evidence_graph()
 
 
 @reason_app.get("/api/v1/reason/safety-log")
 def reason_safety_log() -> dict:
     """Get tool safety audit log (LLM-2)."""
-    service = _get_service()
+    try:
+        service = _get_service()
+    except Exception as exc:
+        logger.error("Reasoning service unavailable for safety log: %s", exc)
+        return {"log": [], "total_entries": 0, "error": str(exc)}
     return {
         "log": service.get_safety_log(),
         "total_entries": len(service.tool_registry.safety_log),
