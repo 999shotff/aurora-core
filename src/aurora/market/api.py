@@ -180,6 +180,11 @@ from aurora.analysis.api import router as analysis_router
 
 app.include_router(analysis_router)
 
+# Terminal: Mount terminal aggregation sub-application
+from aurora.terminal.api import router as terminal_router
+
+app.include_router(terminal_router)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_get_cors_origins(),
